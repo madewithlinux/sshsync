@@ -23,3 +23,17 @@ skeleton:
     * on edit, diff file with copy in ram and send patch to server
         * (patch is compressed)
         * wait for server to acknowledge and print message?
+
+
+## network format
+
+### Diff
+```
+diff
+<number of files diffed>
+<files[0] filename>
+<files[0] delta>
+...
+<files[N] filename>
+<files[N] delta>
+```

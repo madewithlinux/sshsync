@@ -12,7 +12,6 @@ import (
 	"time"
 	"io/ioutil"
 	"bytes"
-	"compress/gzip"
 	"net"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh"
@@ -67,25 +66,10 @@ func shouldIgnore(path string) bool {
 	return true
 }
 
-func zlibCompress(in string) []byte {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	fmt.Fprint(w, in)
-	w.Close()
-	return b.Bytes()
-}
-
-func zlibCompressBytes(in []byte) []byte {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	w.Write(in)
-	w.Close()
-	return b.Bytes()
-}
 
 func logFatalIfNotNil(label string, err error) {
 	if err != nil {
-		log.Fatal(label, err)
+		log.Fatal(label, " error: ", err)
 	}
 }
 
@@ -93,32 +77,37 @@ type SyncFolder struct {
 	BaseRepoPath string
 	fileCache    map[string]string
 	serverStdout io.Reader
-	serverStdin  io.WriteCloser
-}
-
-type Delta struct {
-	Filename string
-	Data     string
-}
-type DeltaSet struct {
-	Deltas []Delta
+	serverStdin  io.Writer
+	conn         *ssh.Client
+	session      *ssh.Session
 }
 
 func main() {
 
-	//fmt.Println(os.Args)
 
-	//if len(os.Args) >= 2 && os.Args[1] == "-server" {
-	if len(os.Args) > 1 {
-		fmt.Println("I am the server")
-		file, err := os.Open("~/test.txt")
+	if len(os.Args) >= 2 && os.Args[1] == "-server" {
+		//if len(os.Args) > 1 {
+		//if false {
+
+		file, err := os.OpenFile("/home/j0sh/test.txt", os.O_RDWR|os.O_TRUNC, 0644)
+		/*FIXME*/
 		logFatalIfNotNil("server side open", err)
+		defer file.Close()
+		// log here for convenience
+		log.SetOutput(file)
+
 		reader := bufio.NewReader(os.Stdin)
+		log.Println("start")
+		//fmt.Fprintln(file, "stdin fd", os.Stdin.Fd())
+
 		for {
-			text, _ := reader.ReadString('\n')
-			fmt.Fprintln(file, text)
+			text, err := reader.ReadString('\n')
+			logFatalIfNotNil("read stdin", err)
+			_, err = fmt.Fprint(file, text)
+			logFatalIfNotNil("write to file", err)
 			file.Sync()
 		}
+
 	} else {
 		//pry.Pry()
 		var dir, err = os.Getwd()
@@ -126,17 +115,13 @@ func main() {
 			log.Fatal(err)
 		}
 		//fmt.Println(dir)
-
-
-		stdout, stdin := openSshConnection()
 		//io.Copy(os.Stdout, stdout)
 
 		r := &SyncFolder{
 			BaseRepoPath: dir,
 			fileCache:    make(map[string]string),
-			serverStdout: stdout,
-			serverStdin:  stdin,
 		}
+		r.openSshConnection()
 		r.watchFiles()
 	}
 }
@@ -149,17 +134,6 @@ func (r *SyncFolder) watchFiles() {
 	defer watcher.Close()
 
 	r.addWatches(watcher)
-
-	//receive, send := libchan.Pipe()
-	//
-	//go func() {
-	//	for {
-	//		ds := &DeltaSet{}
-	//		err := receive.Receive(ds)
-	//		logFatalIfNotNil("receive", err)
-	//		fmt.Println("ds:", *ds)
-	//	}
-	//}()
 
 	done := make(chan bool)
 	go func() {
@@ -175,48 +149,32 @@ func (r *SyncFolder) watchFiles() {
 				waitingForCommit = false
 
 				buf := &bytes.Buffer{}
+				// header
 				fmt.Fprintln(buf, "diff")
 				fmt.Fprintln(buf, len(filesToAdd))
 
-				deltas := &DeltaSet{[]Delta{}}
 				for path, _ := range filesToAdd {
-					log.Println(path)
-					// TODO make sure file still exists
+					log.Println("update: ", path)
+
+					// TODO make sure file still exists (skip otherwise?)
 					newBuf, err := ioutil.ReadFile(path)
 					logFatalIfNotNil("read new file", err)
 					newStr := string(newBuf)
 
-					//oldStr := r.fileCache[path]
-					//fmt.Println(
-					//	"newlen", len(newStr),
-					//	"oldlen", len(oldStr),
-					//)
-
+					// calculate diff
 					diffs := dmp.DiffMain(r.fileCache[path], newStr, false)
 					delta := dmp.DiffToDelta(diffs)
-					//fmt.Println("diffs:", delta)
-					//fmt.Println("len:", len(delta))
-					//fmt.Println("zlib len:", len(zlibCompress(delta)))
+
 					// update cache
 					r.fileCache[path] = newStr
 
 					// write to buffer
 					fmt.Fprintln(buf, path)
 					fmt.Fprintln(buf, delta)
-
-					deltaStruct := Delta{path, delta}
-					deltas.Deltas = append(deltas.Deltas, deltaStruct)
 				}
-				//fmt.Println("buffer:\n" + buf.String())
-				fmt.Fprint(r.serverStdin, buf.String())
-				//logFatalIfNotNil("send", send.Send(deltas))
-				//var buf bytes.Buffer
-				//struc.Pack(&buf, deltas)
-				//fmt.Println("delta len:", len(buf.Bytes()))
-				//fmt.Println("delta zlib len:", len(zlibCompressBytes(buf.Bytes())))
-				//o := &DeltaSet{}
-				//err = struc.Unpack(&buf, o)
-				//fmt.Println("decode error:", err)
+				// TODO: write to server async?
+				_, err := fmt.Fprint(r.serverStdin, buf.String())
+				logFatalIfNotNil("write to server", err)
 
 			case event := <-watcher.Events:
 				path := event.Name
@@ -231,6 +189,7 @@ func (r *SyncFolder) watchFiles() {
 
 				// do not diff folders
 				if err2 == nil && !info.IsDir() {
+					// for some reason paths are not normalized
 					filesToAdd[strings.TrimPrefix(path, "./")] = true
 				}
 
@@ -248,6 +207,7 @@ func (r *SyncFolder) watchFiles() {
 		}
 	}()
 
+	/*FIXME don't just infinite wait?*/
 	<-done
 }
 
@@ -279,7 +239,7 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 
 ////////////////////////////////////////////
 
-func openSshConnection() (io.Reader, io.WriteCloser) {
+func (r *SyncFolder) openSshConnection() {
 	// FIXME hard coded stuff
 	// FIXME error handling
 
@@ -287,40 +247,34 @@ func openSshConnection() (io.Reader, io.WriteCloser) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	agent := agent.NewClient(sock)
-	signers, err := agent.Signers()
-	if err != nil {
-		log.Fatal(err)
-	}
+	authAgent := agent.NewClient(sock)
+	signers, err := authAgent.Signers()
+	logFatalIfNotNil("get signers", err)
 	auths := []ssh.AuthMethod{ssh.PublicKeys(signers...)}
 
 	config := &ssh.ClientConfig{
-		User:            "j0sh",
+		User:            "j0sh"/*FIXME*/,
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	conn, err := ssh.Dial("tcp", "localhost:22", config)
+	r.conn, err = ssh.Dial("tcp", "localhost:22"/*FIXME*/, config)
 	if err != nil {
 		log.Fatal("unable to connect: ", err)
 	}
-	defer conn.Close()
 
-	l, err := conn.Listen("tcp", "0.0.0.0:8080")
-	if err != nil {
-		log.Fatal("unable to register tcp forward: ", err)
-	}
-	defer l.Close()
+	r.session, err = r.conn.NewSession()
+	logFatalIfNotNil("start session", err)
 
-	session, err := conn.NewSession()
-	stdin, err := session.StdinPipe()
+	stdin, err := r.session.StdinPipe()
 	logFatalIfNotNil("stdin", err)
-	stdout, err := session.StdoutPipe()
+	stdout, err := r.session.StdoutPipe()
 	logFatalIfNotNil("stdout", err)
+	fmt.Println("stdin, stdout", stdin, stdout)
 
-	//err = session.Start("/home/j0sh/Documents/code/golang-ssh-one-way-sync/watch_sources -server")
-	err = session.Run("/home/j0sh/Documents/code/golang-ssh-one-way-sync/watch_sources -server")
+	err = r.session.Start("/home/j0sh/Documents/code/golang-ssh-one-way-sync/watch_sources -server"/*FIXME*/)
 	logFatalIfNotNil("start server", err)
 
-	return stdout, stdin
+	r.serverStdout = stdout
+	r.serverStdin = stdin
 }
