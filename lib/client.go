@@ -1,4 +1,4 @@
-package main
+package ssh_sync
 
 import (
 	"github.com/fsnotify/fsnotify"
@@ -16,64 +16,16 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh"
 	"io"
-	"bufio"
 )
 
-var endings []string = []string{
-	".cpp",
-	".hpp",
-	".c",
-	".h",
-	".go",
-	".hs",
-	".cl",
-	".js",
-	".md",
-	".txt",
-}
-
-var ignored_prefixes = []string{
-	".git",
-	".realtime",
-	".idea",
-}
-
 const commitTimeout = 200 * time.Millisecond
+const (
+	serverBinName = "watch_sources_server"
+)
 
-func shouldIgnore(path string) bool {
-	for _, prefix := range ignored_prefixes {
-		if strings.HasPrefix(path, prefix) {
-			//log.Println("ignoring ", path)
-			return true
-		}
-	}
-
-	info, err := os.Stat(path)
-	if err == nil && info.IsDir() {
-		// skip checking endings on directories
-		return false
-	} else if err != nil {
-		// ignore things we can't stat
-		return true
-	}
-
-	for _, ending := range endings {
-		if strings.HasSuffix(path, ending) {
-			//log.Println("adding ", path)
-			return false
-		}
-	}
-	return true
-}
-
-
-func logFatalIfNotNil(label string, err error) {
-	if err != nil {
-		log.Fatal(label, " error: ", err)
-	}
-}
 
 type SyncFolder struct {
+	ignoreConfig IgnoreConfig
 	BaseRepoPath string
 	fileCache    map[string]string
 	serverStdout io.Reader
@@ -82,48 +34,22 @@ type SyncFolder struct {
 	session      *ssh.Session
 }
 
-func main() {
-
-
-	if len(os.Args) >= 2 && os.Args[1] == "-server" {
-		//if len(os.Args) > 1 {
-		//if false {
-
-		file, err := os.OpenFile("/home/j0sh/test.txt", os.O_RDWR|os.O_TRUNC, 0644)
-		/*FIXME*/
-		logFatalIfNotNil("server side open", err)
-		defer file.Close()
-		// log here for convenience
-		log.SetOutput(file)
-
-		reader := bufio.NewReader(os.Stdin)
-		log.Println("start")
-		//fmt.Fprintln(file, "stdin fd", os.Stdin.Fd())
-
-		for {
-			text, err := reader.ReadString('\n')
-			logFatalIfNotNil("read stdin", err)
-			_, err = fmt.Fprint(file, text)
-			logFatalIfNotNil("write to file", err)
-			file.Sync()
-		}
-
-	} else {
-		//pry.Pry()
-		var dir, err = os.Getwd()
-		if err != nil {
-			log.Fatal(err)
-		}
-		//fmt.Println(dir)
-		//io.Copy(os.Stdout, stdout)
-
-		r := &SyncFolder{
-			BaseRepoPath: dir,
-			fileCache:    make(map[string]string),
-		}
-		r.openSshConnection()
-		r.watchFiles()
+func ClientMain() {
+	//pry.Pry()
+	var dir, err = os.Getwd()
+	if err != nil {
+		log.Fatal(err)
 	}
+	//fmt.Println(dir)
+	//io.Copy(os.Stdout, stdout)
+
+	r := &SyncFolder{
+		BaseRepoPath: dir,
+		fileCache:    make(map[string]string),
+	}
+	r.openSshConnection()
+	r.watchFiles()
+
 }
 
 func (r *SyncFolder) watchFiles() {
@@ -179,7 +105,7 @@ func (r *SyncFolder) watchFiles() {
 			case event := <-watcher.Events:
 				path := event.Name
 
-				if shouldIgnore(path) {
+				if r.ignoreConfig.ShouldIgnore(path) {
 					continue
 				}
 
@@ -220,7 +146,7 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 			return err
 		}
 
-		if !shouldIgnore(path) {
+		if !r.ignoreConfig.ShouldIgnore(path) {
 			// add watch
 			log.Println("path", path)
 			err := watcher.Add(path)
@@ -253,12 +179,12 @@ func (r *SyncFolder) openSshConnection() {
 	auths := []ssh.AuthMethod{ssh.PublicKeys(signers...)}
 
 	config := &ssh.ClientConfig{
-		User:            "j0sh"/*FIXME*/,
+		User:            "j0sh" /*FIXME*/ ,
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	r.conn, err = ssh.Dial("tcp", "localhost:22"/*FIXME*/, config)
+	r.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/ , config)
 	if err != nil {
 		log.Fatal("unable to connect: ", err)
 	}
@@ -272,7 +198,9 @@ func (r *SyncFolder) openSshConnection() {
 	logFatalIfNotNil("stdout", err)
 	fmt.Println("stdin, stdout", stdin, stdout)
 
-	err = r.session.Start("/home/j0sh/Documents/code/golang-ssh-one-way-sync/watch_sources -server"/*FIXME*/)
+	err = r.session.Start(/*FIXME*/
+		"/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server " +
+		" -path /home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/")
 	logFatalIfNotNil("start server", err)
 
 	r.serverStdout = stdout
