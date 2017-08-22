@@ -5,6 +5,5 @@ import (
 )
 
 func main() {
-	ssh_sync.ClientMain()
+	sshsync.ClientMain()
 }
-

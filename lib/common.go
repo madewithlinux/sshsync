@@ -1,9 +1,15 @@
-package ssh_sync
+package sshsync
 
 import (
-	"strings"
-	"os"
+	"github.com/spf13/afero"
 	"log"
+	"strings"
+)
+
+// protocol constants
+const (
+	PATCH = "patch"
+	EXIT  = "exit"
 )
 
 var endings []string = []string{
@@ -30,7 +36,7 @@ type IgnoreConfig struct {
 	_unexported int
 }
 
-func (c *IgnoreConfig) ShouldIgnore(path string) bool {
+func (c *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
 	for _, prefix := range ignored_prefixes {
 		if strings.HasPrefix(path, prefix) {
 			//log.Println("ignoring ", path)
@@ -38,7 +44,7 @@ func (c *IgnoreConfig) ShouldIgnore(path string) bool {
 		}
 	}
 
-	info, err := os.Stat(path)
+	info, err := fs.Stat(path)
 	if err == nil && info.IsDir() {
 		// skip checking endings on directories
 		return false

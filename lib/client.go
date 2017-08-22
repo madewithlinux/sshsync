@@ -1,28 +1,31 @@
-package ssh_sync
+package sshsync
 
 import (
 	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/afero"
 	//"github.com/d4l3k/go-pry/pry"
-	"github.com/sergi/go-diff/diffmatchpatch"
-	"log"
-	"path/filepath"
-	"os"
-	"strings"
-	"fmt"
-	"time"
-	"io/ioutil"
 	"bytes"
-	"net"
-	"golang.org/x/crypto/ssh/agent"
+	"fmt"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"io"
+	"io/ioutil"
+	"log"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
+
+// TODO put in client config struct
+var ClientFs afero.Fs = afero.NewOsFs()
 
 const commitTimeout = 200 * time.Millisecond
 const (
 	serverBinName = "watch_sources_server"
 )
-
 
 type SyncFolder struct {
 	ignoreConfig IgnoreConfig
@@ -76,7 +79,7 @@ func (r *SyncFolder) watchFiles() {
 
 				buf := &bytes.Buffer{}
 				// header
-				fmt.Fprintln(buf, "diff")
+				fmt.Fprintln(buf, PATCH)
 				fmt.Fprintln(buf, len(filesToAdd))
 
 				for path, _ := range filesToAdd {
@@ -105,7 +108,7 @@ func (r *SyncFolder) watchFiles() {
 			case event := <-watcher.Events:
 				path := event.Name
 
-				if r.ignoreConfig.ShouldIgnore(path) {
+				if r.ignoreConfig.ShouldIgnore(ClientFs, path) {
 					continue
 				}
 
@@ -146,7 +149,7 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 			return err
 		}
 
-		if !r.ignoreConfig.ShouldIgnore(path) {
+		if !r.ignoreConfig.ShouldIgnore(ClientFs, path) {
 			// add watch
 			log.Println("path", path)
 			err := watcher.Add(path)
@@ -160,7 +163,7 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 			}
 		}
 		return nil
-	});
+	})
 }
 
 ////////////////////////////////////////////
@@ -179,12 +182,12 @@ func (r *SyncFolder) openSshConnection() {
 	auths := []ssh.AuthMethod{ssh.PublicKeys(signers...)}
 
 	config := &ssh.ClientConfig{
-		User:            "j0sh" /*FIXME*/ ,
+		User:            "j0sh", /*FIXME*/
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	r.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/ , config)
+	r.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/, config)
 	if err != nil {
 		log.Fatal("unable to connect: ", err)
 	}
@@ -198,9 +201,9 @@ func (r *SyncFolder) openSshConnection() {
 	logFatalIfNotNil("stdout", err)
 	fmt.Println("stdin, stdout", stdin, stdout)
 
-	err = r.session.Start(/*FIXME*/
+	err = r.session.Start( /*FIXME*/
 		"/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server " +
-		" -path /home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/")
+			" -path /home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/")
 	logFatalIfNotNil("start server", err)
 
 	r.serverStdout = stdout

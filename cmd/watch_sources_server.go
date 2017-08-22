@@ -1,12 +1,9 @@
 package main
 
 import (
-"../lib"
+	"../lib"
 )
 
 func main() {
-	ssh_sync.ServerMain()
+	sshsync.ServerMain()
 }
-
-
-

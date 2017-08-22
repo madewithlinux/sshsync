@@ -1,16 +1,19 @@
-package ssh_sync
+package sshsync
 
 import (
-	"os"
-	"log"
-	"flag"
-	"path/filepath"
-	"io/ioutil"
-	"io"
 	"bufio"
-	"strconv"
+	"flag"
 	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/spf13/afero"
+	"io"
+	"log"
+	"os"
+	"strconv"
+	"strings"
 )
+
+// TODO put in server config struct
+var ServerFs afero.Fs = afero.NewOsFs()
 
 type ServerConfig struct {
 	ignoreConfig IgnoreConfig
@@ -26,74 +29,74 @@ func NewServerConfig() *ServerConfig {
 
 func (c *ServerConfig) BuildCache() {
 	log.Println("recursively caching ", c.path)
-	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	err := afero.Walk(ServerFs, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			log.Println("walk err", err)
 			return err
 		}
 
-		if !c.ignoreConfig.ShouldIgnore(path) {
+		if !c.ignoreConfig.ShouldIgnore(ServerFs, path) {
 			log.Println("caching ", path)
 			if !info.IsDir() {
 				// add only files to cache
-				buf, err := ioutil.ReadFile(path)
+				buf, err := afero.ReadFile(ServerFs, path)
 				logFatalIfNotNil("read file", err)
 				c.fileCache[path] = string(buf)
 			}
+		} else {
+			log.Print("ignoring ", path)
 		}
 		return nil
-	});
+	})
+	logFatalIfNotNil("walk", err)
 }
 
 func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 	dmp := diffmatchpatch.New()
-	//scanner := bufio.NewScanner(stdin)
 	reader := bufio.NewReader(stdin)
 	log.Println("start")
-	//fmt.Fprintln(file, "stdin fd", os.Stdin.Fd())
 
 	for {
 		text, err := reader.ReadString('\n')
 		logFatalIfNotNil("read stdin", err)
 		// trim newline from end of string
-		text = text[0:len(text)-1]
-		//var text string
-		//_, err := fmt.Fscanln(stdin, &text)
-		//logFatalIfNotNil("read stdin", err)
-		//text, err := reader.ReadString('\n')
-		//text := scanner.Text()
+		text = strings.TrimSpace(text)
+		log.Println("text: ", text)
 
 		switch text {
-		case "patch":
+		case PATCH:
 			countStr, err := reader.ReadString('\n')
 			logFatalIfNotNil("read stdin", err)
-			count, err := strconv.Atoi(countStr)
+			count, err := strconv.Atoi(strings.TrimSpace(countStr))
 			logFatalIfNotNil("read stdin", err)
 
 			for i := 0; i < count; i++ {
 				path, err := reader.ReadString('\n')
 				logFatalIfNotNil("read path", err)
-				patchStr, err := reader.ReadString('\n')
+				path = strings.TrimSpace(path)
+				deltaStr, err := reader.ReadString('\n')
 				logFatalIfNotNil("read patch", err)
+				deltaStr = strings.TrimSpace(deltaStr)
 
-				patch, err := dmp.PatchFromText(patchStr)
-				logFatalIfNotNil("parse patch", err)
+				diffs, err := dmp.DiffFromDelta(c.fileCache[path], deltaStr)
+				logFatalIfNotNil("parse delta", err)
+				// get updated file content
+				newText := dmp.DiffText2(diffs)
+				log.Println("new text", newText)
+				// write file
+				// TODO preserve permissions
+				err = afero.WriteFile(ServerFs, path, []byte(newText), 0644)
+				logFatalIfNotNil("write updated file", err)
 				// update cache
-				newText, success := dmp.PatchApply(patch, c.fileCache[path])
 				c.fileCache[path] = newText
-				for i, s := range success {
-					if !s {
-						/*TODO: request file from client if didn't work*/
-						log.Println("failed patch: ", i, " for ", path)
-					}
-				}
-				/*TODO write new file*/
 			}
+		case EXIT:
+			return
 		case "full_file":
 			/*TODO: gzip file, send length, then full file (gzipped binary)*/
 		case "get_all_files":
 			/*TODO: send tarball?*/
 		}
-		log.Println("text: ", text)
 	}
 
 }
@@ -111,6 +114,7 @@ func ServerMain() {
 	var path = flag.String("path", wd, "directory to serve")
 	flag.Parse()
 	// cd to path for simplicity
+	// TODO use afero.NewBasePathFs
 	os.Chdir(*path)
 
 	server := NewServerConfig()
