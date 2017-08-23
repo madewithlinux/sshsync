@@ -1,6 +1,7 @@
 package sshsync
 
 import (
+	"bytes"
 	"github.com/spf13/afero"
 	"log"
 	"strings"
@@ -8,8 +9,9 @@ import (
 
 // protocol constants
 const (
-	PATCH = "patch"
-	EXIT  = "exit"
+	PATCH    = "patch"
+	EXIT     = "exit"
+	GET_FILE = "get_file"
 )
 
 var endings []string = []string{
@@ -66,4 +68,9 @@ func logFatalIfNotNil(label string, err error) {
 	if err != nil {
 		log.Fatal(label, " error: ", err)
 	}
+}
+
+func lineCount(text string) int {
+	// +1 because newline is separator between lines
+	return 1 + bytes.Count([]byte(text), []byte("\n"))
 }

@@ -3,6 +3,7 @@ package sshsync
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 	"io"
@@ -92,8 +93,20 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			}
 		case EXIT:
 			return
-		case "full_file":
-			/*TODO: gzip file, send length, then full file (gzipped binary)*/
+
+		case GET_FILE:
+			// assume that ssh connection handles compression,
+			// so just send line length then file
+			path, err := reader.ReadString('\n')
+			logFatalIfNotNil("read stdin", err)
+			// trim newline from end of string
+			path = strings.TrimSpace(path)
+			log.Println("path: ", path)
+
+			fileText := c.fileCache[path]
+			fmt.Fprintln(stdout, lineCount(fileText))
+			fmt.Fprintln(stdout, fileText)
+
 		case "get_all_files":
 			/*TODO: send tarball?*/
 		}
