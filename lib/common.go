@@ -9,12 +9,12 @@ import (
 
 // protocol constants
 const (
-	PATCH    = "patch"
-	EXIT     = "exit"
-	GET_FILE = "get_file"
+	Patch       = "patch"
+	Exit        = "exit"
+	GetTextFile = "get_text_file"
 )
 
-var endings []string = []string{
+var endings = []string{
 	".cpp",
 	".hpp",
 	".c",
@@ -27,7 +27,8 @@ var endings []string = []string{
 	".txt",
 }
 
-var ignored_prefixes = []string{
+// TODO put this in the IgnoreConfig struct
+var ignoredPrefixes = []string{
 	".git",
 	".realtime",
 	".idea",
@@ -39,7 +40,7 @@ type IgnoreConfig struct {
 }
 
 func (c *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
-	for _, prefix := range ignored_prefixes {
+	for _, prefix := range ignoredPrefixes {
 		if strings.HasPrefix(path, prefix) {
 			//log.Println("ignoring ", path)
 			return true

@@ -65,7 +65,7 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 		log.Println("text: ", text)
 
 		switch text {
-		case PATCH:
+		case Patch:
 			countStr, err := reader.ReadString('\n')
 			logFatalIfNotNil("read stdin", err)
 			count, err := strconv.Atoi(strings.TrimSpace(countStr))
@@ -91,10 +91,10 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 				// update cache
 				c.fileCache[path] = newText
 			}
-		case EXIT:
+		case Exit:
 			return
 
-		case GET_FILE:
+		case GetTextFile:
 			// assume that ssh connection handles compression,
 			// so just send line length then file
 			path, err := reader.ReadString('\n')

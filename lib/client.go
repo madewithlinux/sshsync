@@ -38,13 +38,11 @@ type SyncFolder struct {
 }
 
 func ClientMain() {
-	//pry.Pry()
+
 	var dir, err = os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
-	//fmt.Println(dir)
-	//io.Copy(os.Stdout, stdout)
 
 	r := &SyncFolder{
 		BaseRepoPath: dir,
@@ -79,7 +77,7 @@ func (r *SyncFolder) watchFiles() {
 
 				buf := &bytes.Buffer{}
 				// header
-				fmt.Fprintln(buf, PATCH)
+				fmt.Fprintln(buf, Patch)
 				fmt.Fprintln(buf, len(filesToAdd))
 
 				for path, _ := range filesToAdd {
@@ -140,6 +138,7 @@ func (r *SyncFolder) watchFiles() {
 	<-done
 }
 
+// TODO return err
 func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 	err2 := watcher.Add(".")
 	logFatalIfNotNil("add watch", err2)
@@ -168,6 +167,13 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 
 ////////////////////////////////////////////
 
+func (r *SyncFolder) openLocalConnection(path string) error {
+	return nil
+	// TODO
+}
+
+// TODO parameterize
+// TODO return errors
 func (r *SyncFolder) openSshConnection() {
 	// FIXME hard coded stuff
 	// FIXME error handling
