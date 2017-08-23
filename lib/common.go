@@ -9,8 +9,25 @@ import (
 
 // protocol constants
 const (
-	Patch       = "patch"
-	Exit        = "exit"
+	// apply a delta to a file
+	// format:
+	// delta
+	// <number of files>
+	// <filename>
+	// <delta>
+	// server sends no response
+	Delta = "delta"
+
+	// stop the server
+	Exit = "exit"
+
+	// retrieve a file from server
+	// format:
+	// get_text_file
+	// <filename>
+	// server response:
+	// <number of lines>
+	// text of file
 	GetTextFile = "get_text_file"
 )
 

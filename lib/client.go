@@ -77,7 +77,7 @@ func (r *SyncFolder) watchFiles() {
 
 				buf := &bytes.Buffer{}
 				// header
-				fmt.Fprintln(buf, Patch)
+				fmt.Fprintln(buf, Delta)
 				fmt.Fprintln(buf, len(filesToAdd))
 
 				for path, _ := range filesToAdd {

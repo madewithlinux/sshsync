@@ -65,7 +65,7 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 		log.Println("text: ", text)
 
 		switch text {
-		case Patch:
+		case Delta:
 			countStr, err := reader.ReadString('\n')
 			logFatalIfNotNil("read stdin", err)
 			count, err := strconv.Atoi(strings.TrimSpace(countStr))

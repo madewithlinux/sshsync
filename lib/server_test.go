@@ -23,7 +23,7 @@ func TestServerWritesDiff(t *testing.T) {
 	// make server commands to execute
 	stdin := &bytes.Buffer{}
 	stdout := &bytes.Buffer{}
-	fmt.Fprintln(stdin, Patch)
+	fmt.Fprintln(stdin, Delta)
 	fmt.Fprintln(stdin, "1")
 	fmt.Fprintln(stdin, "testFile.txt")
 	fmt.Fprintln(stdin, delta)

@@ -56,6 +56,8 @@ func TestClientWritesDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// sleep to make sure that testfile1 is diff'ed before newfile
+	time.Sleep(100 * time.Millisecond)
 	// create new file
 	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
 	if err != nil {
@@ -66,7 +68,7 @@ func TestClientWritesDiff(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	result := serverStdin.String()
-	expected := "patch\n" +
+	expected := Delta + "\n" +
 		"2\n" +
 		"testfile1.txt\n" +
 		"=5\t-1\t+2%0A\n" +
