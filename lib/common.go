@@ -29,6 +29,13 @@ const (
 	// <number of lines>
 	// text of file
 	GetTextFile = "get_text_file"
+
+	// retrieve hash of all files on server
+	// response format:
+	// <number of files>
+	// <md5>
+	// <filename>
+	GetFileHashes = "get_file_hashes"
 )
 
 var endings = []string{

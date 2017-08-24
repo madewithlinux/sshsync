@@ -3,8 +3,11 @@ package sshsync
 import (
 	"bytes"
 	"fmt"
+	"log"
+	// "github.com/d4l3k/go-pry/pry"
 	"github.com/spf13/afero"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -17,29 +20,42 @@ func TestClientWritesDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(testName)
-
-	err = os.Chdir(testName)
+	clientPath, err := filepath.Abs(testName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir("..")
+	// err = os.Chdir(testName)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+	// defer os.Chdir("..")
 
-	var clientFs afero.Fs = afero.NewOsFs()
+	var baseFs afero.Fs = afero.NewOsFs()
+	clientFs := afero.NewBasePathFs(baseFs, testName)
 	err = afero.WriteFile(clientFs, "testfile1.txt", []byte("test 1"), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c := &SyncFolder{
-		BaseRepoPath: ".",
-		fileCache:    make(map[string]string),
+	t.Log(clientPath)
+
+	c := &ClientFolder{
+		BasePath:  clientPath,
+		ClientFs:  clientFs,
+		fileCache: make(map[string]string),
 	}
 	serverStdin := &bytes.Buffer{}
 	serverStdout := &bytes.Buffer{}
 	c.serverStdin = serverStdin
 	c.serverStdout = serverStdout
 
-	go c.watchFiles()
+	go func() {
+		log.Println("test1")
+		err := c.watchFiles()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
 	// sleep to let client setup watches
 	time.Sleep(500 * time.Millisecond)
 

@@ -1,40 +1,58 @@
 package sshsync
 
 import (
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/afero"
-	//"github.com/d4l3k/go-pry/pry"
 	"bytes"
 	"fmt"
+	// "github.com/d4l3k/go-pry/pry"
+	"github.com/fsnotify/fsnotify"
 	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// TODO put in client config struct
-var ClientFs afero.Fs = afero.NewOsFs()
-
 const commitTimeout = 200 * time.Millisecond
 const (
-	serverBinName = "watch_sources_server"
+	// TODO
+	serverBinName = "/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server"
+	// serverBinName = "watch_sources_server"
 )
 
-type SyncFolder struct {
+type ClientFolder struct {
+	BasePath     string
+	ClientFs     afero.Fs
 	ignoreConfig IgnoreConfig
-	BaseRepoPath string
 	fileCache    map[string]string
 	serverStdout io.Reader
 	serverStdin  io.Writer
-	conn         *ssh.Client
-	session      *ssh.Session
+	// TODO try to not need to put these here directly
+	conn    *ssh.Client
+	session *ssh.Session
+}
+
+func (c *ClientFolder) makePathAbsolute(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(c.BasePath, path)
+}
+
+func (c *ClientFolder) makePathRelative(absPath string) string {
+	basePath := c.BasePath
+	// make sure ends with slash
+	if !strings.HasSuffix(basePath, "/") {
+		basePath = basePath + "/"
+	}
+	// so that we can just trim prefix
+	return strings.TrimPrefix(absPath, basePath)
 }
 
 func ClientMain() {
@@ -44,23 +62,29 @@ func ClientMain() {
 		log.Fatal(err)
 	}
 
-	r := &SyncFolder{
-		BaseRepoPath: dir,
-		fileCache:    make(map[string]string),
+	c := &ClientFolder{
+		BasePath:  dir,
+		fileCache: make(map[string]string),
 	}
-	r.openSshConnection()
-	r.watchFiles()
+	c.openSshConnection()
+	c.watchFiles()
 
 }
 
-func (r *SyncFolder) watchFiles() {
+func (c *ClientFolder) watchFiles() error {
+	log.Println("test2")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Fatal(err)
+		log.Println("failed to get watcher", err)
+		return err
 	}
 	defer watcher.Close()
 
-	r.addWatches(watcher)
+	err = c.addWatches(watcher)
+	if err != nil {
+		log.Println("failed to add watchers", err)
+		return err
+	}
 
 	done := make(chan bool)
 	go func() {
@@ -84,40 +108,40 @@ func (r *SyncFolder) watchFiles() {
 					log.Println("update: ", path)
 
 					// TODO make sure file still exists (skip otherwise?)
-					newBuf, err := ioutil.ReadFile(path)
+					newBuf, err := afero.ReadFile(c.ClientFs, path)
 					logFatalIfNotNil("read new file", err)
 					newStr := string(newBuf)
 
 					// calculate diff
-					diffs := dmp.DiffMain(r.fileCache[path], newStr, false)
+					diffs := dmp.DiffMain(c.fileCache[path], newStr, false)
 					delta := dmp.DiffToDelta(diffs)
 
 					// update cache
-					r.fileCache[path] = newStr
+					c.fileCache[path] = newStr
 
 					// write to buffer
-					fmt.Fprintln(buf, path)
+					fmt.Fprintln(buf, c.makePathRelative(path))
 					fmt.Fprintln(buf, delta)
 				}
 				// TODO: write to server async?
-				_, err := fmt.Fprint(r.serverStdin, buf.String())
+				_, err := fmt.Fprint(c.serverStdin, buf.String())
 				logFatalIfNotNil("write to server", err)
 
 			case event := <-watcher.Events:
-				path := event.Name
+				absPath := event.Name
+				path := c.makePathRelative(absPath)
 
-				if r.ignoreConfig.ShouldIgnore(ClientFs, path) {
+				if c.ignoreConfig.ShouldIgnore(c.ClientFs, path) {
 					continue
 				}
 
-				err = watcher.Add(path)
+				err = watcher.Add(absPath)
 				logFatalIfNotNil("add new watch", err)
-				info, err2 := os.Stat(path)
+				info, err2 := c.ClientFs.Stat(path)
 
 				// do not diff folders
 				if err2 == nil && !info.IsDir() {
-					// for some reason paths are not normalized
-					filesToAdd[strings.TrimPrefix(path, "./")] = true
+					filesToAdd[path] = true
 				}
 
 				if !waitingForCommit {
@@ -136,29 +160,34 @@ func (r *SyncFolder) watchFiles() {
 
 	/*FIXME don't just infinite wait?*/
 	<-done
+	return nil
 }
 
-// TODO return err
-func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
-	err2 := watcher.Add(".")
-	logFatalIfNotNil("add watch", err2)
+func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
+	err := watcher.Add(c.BasePath)
+	if err != nil {
+		log.Println("failed to add base watch", err)
+		return err
+	}
 
-	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	return afero.Walk(c.ClientFs, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !r.ignoreConfig.ShouldIgnore(ClientFs, path) {
+		if !c.ignoreConfig.ShouldIgnore(c.ClientFs, path) {
 			// add watch
 			log.Println("path", path)
-			err := watcher.Add(path)
+			log.Println("abs path", c.makePathAbsolute(path))
+			err := watcher.Add(c.makePathAbsolute(path))
 			logFatalIfNotNil("add initial watch", err)
 
 			if !info.IsDir() {
 				// add only files to cache
-				buf, err := ioutil.ReadFile(path)
+				buf, err := afero.ReadFile(c.ClientFs, path)
+				// TODO do not fail hard
 				logFatalIfNotNil("read file", err)
-				r.fileCache[path] = string(buf)
+				c.fileCache[path] = string(buf)
 			}
 		}
 		return nil
@@ -167,14 +196,32 @@ func (r *SyncFolder) addWatches(watcher *fsnotify.Watcher) {
 
 ////////////////////////////////////////////
 
-func (r *SyncFolder) openLocalConnection(path string) error {
+func (c *ClientFolder) openLocalConnection(path string) error {
+	serverCmd := exec.Command(serverBinName)
+	serverCmd.Dir = path
+
+	stdin, err := serverCmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := serverCmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	err = serverCmd.Start()
+	if err != nil {
+		return err
+	}
+
+	c.serverStdout = stdout
+	c.serverStdin = stdin
+
 	return nil
-	// TODO
 }
 
 // TODO parameterize
 // TODO return errors
-func (r *SyncFolder) openSshConnection() {
+func (c *ClientFolder) openSshConnection() {
 	// FIXME hard coded stuff
 	// FIXME error handling
 
@@ -193,25 +240,25 @@ func (r *SyncFolder) openSshConnection() {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	r.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/, config)
+	c.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/, config)
 	if err != nil {
 		log.Fatal("unable to connect: ", err)
 	}
 
-	r.session, err = r.conn.NewSession()
+	c.session, err = c.conn.NewSession()
 	logFatalIfNotNil("start session", err)
 
-	stdin, err := r.session.StdinPipe()
+	stdin, err := c.session.StdinPipe()
 	logFatalIfNotNil("stdin", err)
-	stdout, err := r.session.StdoutPipe()
+	stdout, err := c.session.StdoutPipe()
 	logFatalIfNotNil("stdout", err)
 	fmt.Println("stdin, stdout", stdin, stdout)
 
-	err = r.session.Start( /*FIXME*/
+	err = c.session.Start( /*FIXME*/
 		"/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server " +
 			" -path /home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/")
 	logFatalIfNotNil("start server", err)
 
-	r.serverStdout = stdout
-	r.serverStdin = stdin
+	c.serverStdout = stdout
+	c.serverStdin = stdin
 }
