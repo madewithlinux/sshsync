@@ -66,13 +66,51 @@ func ClientMain() {
 		BasePath:  dir,
 		fileCache: make(map[string]string),
 	}
-	c.openSshConnection()
+	c.OpenSshConnection()
 	c.watchFiles()
 
 }
 
+// FIXME figure out why this package needs to carry around this object
+var dmp = diffmatchpatch.New()
+
+func (c *ClientFolder) sendFileDiffs(files map[string]bool) error {
+
+	buf := &bytes.Buffer{}
+	// header
+	fmt.Fprintln(buf, Delta)
+	fmt.Fprintln(buf, len(files))
+
+	for path := range files {
+		log.Println("update: ", path)
+
+		newBuf, err := afero.ReadFile(c.ClientFs, path)
+		if err != nil {
+			// silently skip files that can't be read
+			continue
+		}
+		newStr := string(newBuf)
+
+		// calculate diff
+		diffs := dmp.DiffMain(c.fileCache[path], newStr, false)
+		delta := dmp.DiffToDelta(diffs)
+
+		// update cache
+		c.fileCache[path] = newStr
+
+		// write to buffer
+		fmt.Fprintln(buf, c.makePathRelative(path))
+		fmt.Fprintln(buf, delta)
+	}
+	_, err := fmt.Fprint(c.serverStdin, buf.String())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *ClientFolder) watchFiles() error {
-	log.Println("test2")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Println("failed to get watcher", err)
@@ -88,44 +126,28 @@ func (c *ClientFolder) watchFiles() error {
 
 	done := make(chan bool)
 	go func() {
-		dmp := diffmatchpatch.New()
 		var err error
 		waitingForCommit := false
 		shouldCommit := make(chan bool, 1)
 		var filesToAdd = make(map[string]bool)
 
 		for {
+			// TODO additional channel for quitting, which also removes watches
+			// (additional channel stored in ClientFolder and used by stop method)
 			select {
 			case <-shouldCommit:
-				waitingForCommit = false
-
-				buf := &bytes.Buffer{}
-				// header
-				fmt.Fprintln(buf, Delta)
-				fmt.Fprintln(buf, len(filesToAdd))
-
-				for path, _ := range filesToAdd {
-					log.Println("update: ", path)
-
-					// TODO make sure file still exists (skip otherwise?)
-					newBuf, err := afero.ReadFile(c.ClientFs, path)
-					logFatalIfNotNil("read new file", err)
-					newStr := string(newBuf)
-
-					// calculate diff
-					diffs := dmp.DiffMain(c.fileCache[path], newStr, false)
-					delta := dmp.DiffToDelta(diffs)
-
-					// update cache
-					c.fileCache[path] = newStr
-
-					// write to buffer
-					fmt.Fprintln(buf, c.makePathRelative(path))
-					fmt.Fprintln(buf, delta)
+				err := c.sendFileDiffs(filesToAdd)
+				if err != nil {
+					log.Println("failed to send, will retry")
+					waitingForCommit = true
+					go func() {
+						time.Sleep(commitTimeout)
+						shouldCommit <- true
+					}()
+				} else {
+					waitingForCommit = false
+					filesToAdd = make(map[string]bool)
 				}
-				// TODO: write to server async?
-				_, err := fmt.Fprint(c.serverStdin, buf.String())
-				logFatalIfNotNil("write to server", err)
 
 			case event := <-watcher.Events:
 				absPath := event.Name
@@ -196,7 +218,7 @@ func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
 
 ////////////////////////////////////////////
 
-func (c *ClientFolder) openLocalConnection(path string) error {
+func (c *ClientFolder) OpenLocalConnection(path string) error {
 	serverCmd := exec.Command(serverBinName)
 	serverCmd.Dir = path
 
@@ -221,7 +243,7 @@ func (c *ClientFolder) openLocalConnection(path string) error {
 
 // TODO parameterize
 // TODO return errors
-func (c *ClientFolder) openSshConnection() {
+func (c *ClientFolder) OpenSshConnection() {
 	// FIXME hard coded stuff
 	// FIXME error handling
 
