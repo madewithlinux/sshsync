@@ -13,9 +13,6 @@ import (
 	"strings"
 )
 
-// TODO put in server config struct
-//var ServerFs afero.Fs = afero.NewOsFs()
-
 type ServerConfig struct {
 	ServerFs     afero.Fs
 	ignoreConfig IgnoreConfig

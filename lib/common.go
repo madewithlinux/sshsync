@@ -3,6 +3,7 @@ package sshsync
 import (
 	"bytes"
 	"github.com/spf13/afero"
+	"github.com/gobwas/glob"
 	"log"
 	"strings"
 	"hash/crc64"
@@ -40,35 +41,74 @@ const (
 	GetFileHashes = "get_file_hashes"
 )
 
-var endings = []string{
-	".cpp",
-	".hpp",
-	".c",
-	".h",
-	".go",
-	".hs",
-	".cl",
-	".js",
-	".md",
-	".txt",
-}
-
-// TODO put this in the IgnoreConfig struct
-var ignoredPrefixes = []string{
-	".git",
-	".realtime",
-	".idea",
-}
-
 type IgnoreConfig struct {
-	/*TODO*/
-	_unexported int
+	Extensions []string
+	// glob matched
+	GlobIgnore         []string
+	compiledGlobIgnore []glob.Glob
 }
 
-func (c *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
-	for _, prefix := range ignoredPrefixes {
-		if strings.HasPrefix(path, prefix) {
-			//log.Println("ignoring ", path)
+var DefaultIgnoreConfig = &IgnoreConfig{
+	Extensions: []string{
+		".cpp",
+		".hpp",
+		".c",
+		".h",
+		".go",
+		".hs",
+		".cl",
+		".js",
+		".md",
+		".txt",
+	},
+	GlobIgnore: []string{
+		// ignore all hidden files and folders
+		".*",
+		// ignore build folders
+		"build/*",
+		"target/*",
+		"out/*",
+	},
+}
+
+// call this before using compiled glob patterns
+func (cfg *IgnoreConfig) compileGlobs() {
+	if len(cfg.GlobIgnore) == len(cfg.compiledGlobIgnore) {
+		return
+	}
+	cfg.compiledGlobIgnore = make([]glob.Glob, len(cfg.GlobIgnore))
+	for i, globIgnoreString := range cfg.GlobIgnore {
+		var err error
+		cfg.compiledGlobIgnore[i], err = glob.Compile(globIgnoreString)
+		if err != nil {
+			panic("bad glob pattern: " + globIgnoreString + " " + err.Error())
+		}
+	}
+}
+
+func (cfg *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
+	// if zero-initialized, ignore only what can't be stat
+	if len(cfg.Extensions) == 0 &&
+		len(cfg.GlobIgnore) == 0 &&
+		len(cfg.compiledGlobIgnore) == 0 {
+		log.Println("default not ignoring", path)
+		stat, err := fs.Stat(path)
+		if  err != nil && stat.IsDir() {
+			log.Println("default ignoring dir", path)
+			return true
+		} else if err != nil && !stat.IsDir() {
+			log.Println("default not ignoring", path)
+			return false
+		} else {
+			log.Println("default ignoring non existent", path)
+			return false
+		}
+	}
+
+	cfg.compileGlobs()
+	for _, globIgnore := range cfg.compiledGlobIgnore {
+		if globIgnore.Match(path) {
+			log.Println("ignoring", path)
 			return true
 		}
 	}
@@ -76,18 +116,23 @@ func (c *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
 	info, err := fs.Stat(path)
 	if err == nil && info.IsDir() {
 		// skip checking endings on directories
-		return false
+		log.Println("ignoring dir", path)
+		return true
 	} else if err != nil {
-		// ignoreConfig things we can't stat
+		// ignore things we can't stat
+		log.Println("ignoring non existent", path)
 		return true
 	}
 
-	for _, ending := range endings {
-		if strings.HasSuffix(path, ending) {
-			//log.Println("adding ", path)
+	// do not ignore whitelisted extensions
+	for _, extension := range cfg.Extensions {
+		if strings.HasSuffix(path, extension) {
+			log.Println("not ignoring", path)
 			return false
 		}
 	}
+	// ignore everything else
+	log.Println("default ignoring", path)
 	return true
 }
 
@@ -102,9 +147,9 @@ func lineCount(text string) int {
 	return 1 + bytes.Count([]byte(text), []byte("\n"))
 }
 
-var ECMATable = crc64.MakeTable(crc64.ECMA)
+var ecmaTable = crc64.MakeTable(crc64.ECMA)
 
 func crc64string(content string) string {
-	var digest = crc64.Checksum([]byte(content), ECMATable)
+	var digest = crc64.Checksum([]byte(content), ecmaTable)
 	return fmt.Sprintf("%x", digest)
 }
