@@ -48,7 +48,7 @@ type IgnoreConfig struct {
 	compiledGlobIgnore []glob.Glob
 }
 
-var DefaultIgnoreConfig = &IgnoreConfig{
+var DefaultIgnoreConfig = IgnoreConfig{
 	Extensions: []string{
 		".cpp",
 		".hpp",
@@ -81,6 +81,7 @@ func (cfg *IgnoreConfig) compileGlobs() {
 		var err error
 		cfg.compiledGlobIgnore[i], err = glob.Compile(globIgnoreString)
 		if err != nil {
+			log.Println("bad glob pattern:", globIgnoreString, err)
 			panic("bad glob pattern: " + globIgnoreString + " " + err.Error())
 		}
 	}

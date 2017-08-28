@@ -29,10 +29,11 @@ const (
 type ClientFolder struct {
 	BasePath     string
 	ClientFs     afero.Fs
-	ignoreConfig IgnoreConfig
+	IgnoreCfg    IgnoreConfig
 	fileCache    map[string]string
 	serverStdout io.Reader
 	serverStdin  io.Writer
+	exitChannel  chan bool
 	// TODO try to not need to put these here directly
 	conn    *ssh.Client
 	session *ssh.Session
@@ -67,7 +68,7 @@ func ClientMain() {
 		fileCache: make(map[string]string),
 	}
 	c.OpenSshConnection()
-	c.watchFiles()
+	c.StartWatchFiles()
 
 }
 
@@ -110,13 +111,19 @@ func (c *ClientFolder) sendFileDiffs(files map[string]bool) error {
 	return nil
 }
 
-func (c *ClientFolder) watchFiles() error {
+func (c *ClientFolder) StopWatchFiles() {
+	c.exitChannel <- true
+}
+
+func (c *ClientFolder) StartWatchFiles() error {
+	// initialize exit channel
+	c.exitChannel = make(chan bool)
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Println("failed to get watcher", err)
 		return err
 	}
-	defer watcher.Close()
 
 	err = c.addWatches(watcher)
 	if err != nil {
@@ -124,7 +131,6 @@ func (c *ClientFolder) watchFiles() error {
 		return err
 	}
 
-	done := make(chan bool)
 	go func() {
 		var err error
 		waitingForCommit := false
@@ -132,8 +138,6 @@ func (c *ClientFolder) watchFiles() error {
 		var filesToAdd = make(map[string]bool)
 
 		for {
-			// TODO additional channel for quitting, which also removes watches
-			// (additional channel stored in ClientFolder and used by stop method)
 			select {
 			case <-shouldCommit:
 				err := c.sendFileDiffs(filesToAdd)
@@ -153,7 +157,7 @@ func (c *ClientFolder) watchFiles() error {
 				absPath := event.Name
 				path := c.makePathRelative(absPath)
 
-				if c.ignoreConfig.ShouldIgnore(c.ClientFs, path) {
+				if c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
 					continue
 				}
 
@@ -176,12 +180,15 @@ func (c *ClientFolder) watchFiles() error {
 
 			case err := <-watcher.Errors:
 				logFatalIfNotNil("watcher error", err)
+
+			case _ = <-c.exitChannel:
+				log.Println("quitting watch thread")
+				watcher.Close()
+				return
 			}
 		}
 	}()
 
-	/*FIXME don't just infinite wait?*/
-	<-done
 	return nil
 }
 
@@ -197,7 +204,7 @@ func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
 			return err
 		}
 
-		if !c.ignoreConfig.ShouldIgnore(c.ClientFs, path) {
+		if !c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
 			// add watch
 			log.Println("path", path)
 			log.Println("abs path", c.makePathAbsolute(path))
@@ -262,7 +269,7 @@ func (c *ClientFolder) OpenSshConnection() {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	c.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/, config)
+	c.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/ , config)
 	if err != nil {
 		log.Fatal("unable to connect: ", err)
 	}

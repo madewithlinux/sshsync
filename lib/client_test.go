@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
-	"log"
-	// "github.com/d4l3k/go-pry/pry"
 	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
@@ -124,6 +122,7 @@ func TestClientWritesDiff(t *testing.T) {
 	t.Log(clientPath)
 
 	c := &ClientFolder{
+		IgnoreCfg: DefaultIgnoreConfig,
 		BasePath:  clientPath,
 		ClientFs:  clientFs,
 		fileCache: make(map[string]string),
@@ -133,13 +132,12 @@ func TestClientWritesDiff(t *testing.T) {
 	c.serverStdin = serverStdin
 	c.serverStdout = serverStdout
 
-	go func() {
-		log.Println("test1")
-		err := c.watchFiles()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}()
+
+	err = c.StartWatchFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// sleep to let client setup watches
 	time.Sleep(500 * time.Millisecond)
 
