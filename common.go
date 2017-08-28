@@ -39,8 +39,19 @@ const (
 	// <crc64>
 	// <filename>
 	GetFileHashes = "get_file_hashes"
+
+	// environment constants
+	// used by the client to pass parameters to the server
+	// (to avoid shell interpolation)
+	// must start with LC_ to go through ssh for some reason
+	EnvSourceDir = "LC_SSHSYNC_SOURCE_DIR"
+	EnvIgnoreCfg = "LC_SSHSYNC_IGNORE_CFG"
+
+
+	BinName = "sshsync"
 )
 
+// TODO serialize this so it can go in env
 type IgnoreConfig struct {
 	Extensions []string
 	// glob matched
@@ -94,7 +105,7 @@ func (cfg *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
 		len(cfg.compiledGlobIgnore) == 0 {
 		log.Println("default not ignoring", path)
 		stat, err := fs.Stat(path)
-		if  err != nil && stat.IsDir() {
+		if err != nil && stat.IsDir() {
 			log.Println("default ignoring dir", path)
 			return true
 		} else if err != nil && !stat.IsDir() {

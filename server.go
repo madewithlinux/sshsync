@@ -2,7 +2,6 @@ package sshsync
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
@@ -14,10 +13,10 @@ import (
 )
 
 type ServerConfig struct {
-	ServerFs     afero.Fs
-	ignoreConfig IgnoreConfig
-	path         string
-	fileCache    map[string]string
+	ServerFs  afero.Fs
+	IgnoreCfg IgnoreConfig
+	path      string
+	fileCache map[string]string
 }
 
 func NewServerConfig(fs afero.Fs) *ServerConfig {
@@ -35,7 +34,7 @@ func (c *ServerConfig) BuildCache() {
 			return err
 		}
 
-		if !c.ignoreConfig.ShouldIgnore(c.ServerFs, path) {
+		if !c.IgnoreCfg.ShouldIgnore(c.ServerFs, path) {
 			log.Println("caching ", path)
 			if !info.IsDir() {
 				// add only files to cache
@@ -122,39 +121,23 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 }
 
 func ServerMain() {
-	// log here for convenience
-	/* TODO better logging */
-	file, err := os.OpenFile("/home/j0sh/test.txt", os.O_RDWR|os.O_TRUNC, 0644)
+	sourceDir := os.Getenv(EnvSourceDir)
+	err := os.Chdir(sourceDir)
+	logFatalIfNotNil("could not find server source dir", err)
+
+	// log in server-side sources for convenience
+	file, err := os.OpenFile("server.log", os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0644)
 	logFatalIfNotNil("server side open", err)
 	defer file.Close()
-	log.SetOutput(io.MultiWriter(file, os.Stdout))
-
-	wd, err := os.Getwd()
-	logFatalIfNotNil("get cwd", err)
-	var path = flag.String("path", wd, "directory to serve")
-	flag.Parse()
-	// cd to path for simplicity
-	// TODO use afero.NewBasePathFs
-	os.Chdir(*path)
+	log.SetOutput(file)
 
 	server := NewServerConfig(afero.NewOsFs())
-	wd, err = os.Getwd()
+	wd, err := os.Getwd()
 	logFatalIfNotNil("get cwd", err)
+
+	server.IgnoreCfg = DefaultIgnoreConfig
 	server.path = wd
 	server.BuildCache()
 
 	server.readCommands(os.Stdout, os.Stdin)
-
-	//reader := bufio.NewReader(os.Stdin)
-	//log.Println("start")
-	////fmt.Fprintln(file, "stdin fd", os.Stdin.Fd())
-	//
-	//for {
-	//	text, err := reader.ReadString('\n')
-	//	logFatalIfNotNil("read stdin", err)
-	//	_, err = fmt.Fprint(file, text)
-	//	logFatalIfNotNil("write to file", err)
-	//	file.Sync()
-	//}
-
 }

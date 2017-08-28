@@ -20,11 +20,6 @@ import (
 )
 
 const commitTimeout = 200 * time.Millisecond
-const (
-	// TODO
-	serverBinName = "/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server"
-	// serverBinName = "watch_sources_server"
-)
 
 type ClientFolder struct {
 	BasePath     string
@@ -54,22 +49,6 @@ func (c *ClientFolder) makePathRelative(absPath string) string {
 	}
 	// so that we can just trim prefix
 	return strings.TrimPrefix(absPath, basePath)
-}
-
-func ClientMain() {
-
-	var dir, err = os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	c := &ClientFolder{
-		BasePath:  dir,
-		fileCache: make(map[string]string),
-	}
-	c.OpenSshConnection()
-	c.StartWatchFiles()
-
 }
 
 // FIXME figure out why this package needs to carry around this object
@@ -115,7 +94,7 @@ func (c *ClientFolder) StopWatchFiles() {
 	c.exitChannel <- true
 }
 
-func (c *ClientFolder) StartWatchFiles() error {
+func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 	// initialize exit channel
 	c.exitChannel = make(chan bool)
 
@@ -131,7 +110,7 @@ func (c *ClientFolder) StartWatchFiles() error {
 		return err
 	}
 
-	go func() {
+	bgfunc := func() {
 		var err error
 		waitingForCommit := false
 		shouldCommit := make(chan bool, 1)
@@ -142,7 +121,7 @@ func (c *ClientFolder) StartWatchFiles() error {
 			case <-shouldCommit:
 				err := c.sendFileDiffs(filesToAdd)
 				if err != nil {
-					log.Println("failed to send, will retry")
+					log.Println("failed to send, will retry", err)
 					waitingForCommit = true
 					go func() {
 						time.Sleep(commitTimeout)
@@ -187,7 +166,13 @@ func (c *ClientFolder) StartWatchFiles() error {
 				return
 			}
 		}
-	}()
+	}
+
+	if foreground {
+		bgfunc()
+	} else {
+		go bgfunc()
+	}
 
 	return nil
 }
@@ -226,7 +211,7 @@ func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
 ////////////////////////////////////////////
 
 func (c *ClientFolder) OpenLocalConnection(path string) error {
-	serverCmd := exec.Command(serverBinName)
+	serverCmd := exec.Command(BinName)
 	serverCmd.Dir = path
 
 	stdin, err := serverCmd.StdinPipe()
@@ -248,46 +233,78 @@ func (c *ClientFolder) OpenLocalConnection(path string) error {
 	return nil
 }
 
-// TODO parameterize
-// TODO return errors
-func (c *ClientFolder) OpenSshConnection() {
-	// FIXME hard coded stuff
-	// FIXME error handling
+func (c *ClientFolder) OpenSshConnection(user, address string) error {
+	// FIXME hard coded test stuff
 
 	sock, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	authAgent := agent.NewClient(sock)
 	signers, err := authAgent.Signers()
-	logFatalIfNotNil("get signers", err)
+	if err != nil {
+		return err
+	}
 	auths := []ssh.AuthMethod{ssh.PublicKeys(signers...)}
 
 	config := &ssh.ClientConfig{
-		User:            "j0sh", /*FIXME*/
+		User:            user,
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	// Dial your ssh server.
-	c.conn, err = ssh.Dial("tcp", "localhost:22" /*FIXME*/ , config)
+	c.conn, err = ssh.Dial("tcp", address, config)
 	if err != nil {
-		log.Fatal("unable to connect: ", err)
+		return err
 	}
 
 	c.session, err = c.conn.NewSession()
-	logFatalIfNotNil("start session", err)
+	if err != nil {
+		return err
+	}
+
+	err = c.session.Setenv(EnvSourceDir, "/home/j0sh/Downloads/test sync folder server/")
+	if err != nil {
+		return err
+	}
 
 	stdin, err := c.session.StdinPipe()
-	logFatalIfNotNil("stdin", err)
+	if err != nil {
+		return err
+	}
 	stdout, err := c.session.StdoutPipe()
-	logFatalIfNotNil("stdout", err)
+	if err != nil {
+		return err
+	}
 	fmt.Println("stdin, stdout", stdin, stdout)
 
-	err = c.session.Start( /*FIXME*/
-		"/home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/watch_sources_server " +
-			" -path /home/j0sh/Documents/code/golang-ssh-one-way-sync/cmd/")
-	logFatalIfNotNil("start server", err)
+	// TODO
+	//c.session.Setenv(EnvIgnoreCfg, c.IgnoreCfg.String())
+
+	err = c.session.Start(BinName + " -server")
+	if err != nil {
+		return err
+	}
 
 	c.serverStdout = stdout
 	c.serverStdin = stdin
+
+	return nil
+}
+
+func ClientMain() {
+
+	var dir, err = os.Getwd()
+	logFatalIfNotNil("get cwd", err)
+
+	c := &ClientFolder{
+		ClientFs:  afero.NewBasePathFs(afero.NewOsFs(), dir),
+		BasePath:  dir,
+		fileCache: make(map[string]string),
+	}
+	// TODO
+	err = c.OpenSshConnection("j0sh", "localhost:22")
+	logFatalIfNotNil("open ssh connection", err)
+	c.StartWatchFiles(true)
+
 }

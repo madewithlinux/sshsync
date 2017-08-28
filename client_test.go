@@ -133,7 +133,7 @@ func TestClientWritesDiff(t *testing.T) {
 	c.serverStdout = serverStdout
 
 
-	err = c.StartWatchFiles()
+	err = c.StartWatchFiles(false)
 	if err != nil {
 		t.Fatal(err)
 	}
