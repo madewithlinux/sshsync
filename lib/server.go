@@ -14,33 +14,35 @@ import (
 )
 
 // TODO put in server config struct
-var ServerFs afero.Fs = afero.NewOsFs()
+//var ServerFs afero.Fs = afero.NewOsFs()
 
 type ServerConfig struct {
+	ServerFs     afero.Fs
 	ignoreConfig IgnoreConfig
 	path         string
 	fileCache    map[string]string
 }
 
-func NewServerConfig() *ServerConfig {
+func NewServerConfig(fs afero.Fs) *ServerConfig {
 	return &ServerConfig{
 		fileCache: make(map[string]string),
+		ServerFs:  fs,
 	}
 }
 
 func (c *ServerConfig) BuildCache() {
 	log.Println("recursively caching ", c.path)
-	err := afero.Walk(ServerFs, ".", func(path string, info os.FileInfo, err error) error {
+	err := afero.Walk(c.ServerFs, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Println("walk err", err)
 			return err
 		}
 
-		if !c.ignoreConfig.ShouldIgnore(ServerFs, path) {
+		if !c.ignoreConfig.ShouldIgnore(c.ServerFs, path) {
 			log.Println("caching ", path)
 			if !info.IsDir() {
 				// add only files to cache
-				buf, err := afero.ReadFile(ServerFs, path)
+				buf, err := afero.ReadFile(c.ServerFs, path)
 				logFatalIfNotNil("read file", err)
 				c.fileCache[path] = string(buf)
 			}
@@ -86,11 +88,12 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 				log.Println("new text", newText)
 				// write file
 				// TODO preserve permissions
-				err = afero.WriteFile(ServerFs, path, []byte(newText), 0644)
+				err = afero.WriteFile(c.ServerFs, path, []byte(newText), 0644)
 				logFatalIfNotNil("write updated file", err)
 				// update cache
 				c.fileCache[path] = newText
 			}
+
 		case Exit:
 			return
 
@@ -106,6 +109,13 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			fileText := c.fileCache[path]
 			fmt.Fprintln(stdout, lineCount(fileText))
 			fmt.Fprintln(stdout, fileText)
+
+		case GetFileHashes:
+			// respond from cache, do not involve disk
+			fmt.Fprintln(stdout, len(c.fileCache))
+			for path, text := range c.fileCache {
+				fmt.Fprintln(stdout, crc64string(text), path)
+			}
 
 		case "get_all_files":
 			/*TODO: send tarball?*/
@@ -130,7 +140,7 @@ func ServerMain() {
 	// TODO use afero.NewBasePathFs
 	os.Chdir(*path)
 
-	server := NewServerConfig()
+	server := NewServerConfig(afero.NewOsFs())
 	wd, err = os.Getwd()
 	logFatalIfNotNil("get cwd", err)
 	server.path = wd

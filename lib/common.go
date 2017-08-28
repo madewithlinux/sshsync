@@ -5,6 +5,8 @@ import (
 	"github.com/spf13/afero"
 	"log"
 	"strings"
+	"hash/crc64"
+	"fmt"
 )
 
 // protocol constants
@@ -33,7 +35,7 @@ const (
 	// retrieve hash of all files on server
 	// response format:
 	// <number of files>
-	// <md5>
+	// <crc64>
 	// <filename>
 	GetFileHashes = "get_file_hashes"
 )
@@ -98,4 +100,11 @@ func logFatalIfNotNil(label string, err error) {
 func lineCount(text string) int {
 	// +1 because newline is separator between lines
 	return 1 + bytes.Count([]byte(text), []byte("\n"))
+}
+
+var ECMATable = crc64.MakeTable(crc64.ECMA)
+
+func crc64string(content string) string {
+	var digest = crc64.Checksum([]byte(content), ECMATable)
+	return fmt.Sprintf("%x", digest)
 }
