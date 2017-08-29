@@ -29,14 +29,16 @@ const (
 	// get_text_file
 	// <filename>
 	// server response:
-	// <number of lines>
-	// text of file
+	// <number of bytes>
+	// <text of file>
+	// <newline>
 	GetTextFile = "get_text_file"
 
 	// send a text file to the server
 	// format:
-	// <number of lines>
+	// <number of bytes>
 	// <raw text file>
+	// <newline>
 	SendTextFile = "send_text_file"
 
 	// retrieve hash of all files on server

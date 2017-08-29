@@ -54,7 +54,7 @@ func TestServer(t *testing.T) {
 	server.readCommands(stdout, stdin)
 
 	result := stdout.String()
-	expected := "4\nline 1\nline two\nthird line\n\n"
+	expected := "27\nline 1\nline two\nthird line\n\n"
 	if result != expected {
 		t.Fatalf("%s should have been %s", result, expected)
 	}
@@ -79,9 +79,11 @@ func TestServerGetHashes(t *testing.T) {
 	server.BuildCache()
 	server.readCommands(stdout, stdin)
 
+
 	result := stdout.String()
 	expected := "1\n" + crc64string(string1) + " testFile.txt\n"
 	if result != expected {
 		t.Fatalf("%s should have been %s", result, expected)
 	}
 }
+

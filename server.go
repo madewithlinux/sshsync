@@ -102,13 +102,14 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			logFatalIfNotNil("read stdin", err)
 			// trim newline from end of string
 			path = strings.TrimSpace(path)
-			log.Println("path: ", path)
+			log.Println("sending: ", path)
 
 			fileText := c.fileCache[path]
-			fmt.Fprintln(stdout, lineCount(fileText))
+			fmt.Fprintln(stdout, len([]byte(fileText)))
 			fmt.Fprintln(stdout, fileText)
 
 		case SendTextFile:
+			panic("SendTextFile not implemented")
 			// TODO
 
 		case GetFileHashes:

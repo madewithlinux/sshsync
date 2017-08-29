@@ -370,7 +370,7 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 		if _, ok := serverChecksums[path]; !ok {
 			log.Println("pushing", path)
 			// send file to server
-			fmt.Fprintln(c.serverStdin, lineCount(c.fileCache[path]))
+			fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[path])))
 			fmt.Fprintln(c.serverStdin, c.fileCache[path])
 		}
 	}
@@ -388,23 +388,22 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 			if err != nil {
 				return err
 			}
-			count, err := strconv.Atoi(strings.TrimSpace(countStr))
+			byteCount, err := strconv.Atoi(strings.TrimSpace(countStr))
 			if err != nil {
 				return err
 			}
-			fileText := &bytes.Buffer{}
-			for i := 0; i < count; i++ {
-				line, err := reader.ReadString('\n')
-				if err != nil {
-					return err
-				}
-				fmt.Fprint(fileText, line)
+
+			fileBytes := make([]byte, byteCount)
+			_, err = io.ReadFull(reader, fileBytes)
+			if err != nil {
+				return err
 			}
+			fileText := string(fileBytes)
 
 			// write file to cache
-			c.fileCache[path] = fileText.String()
+			c.fileCache[path] = fileText
 			// TODO file mode?
-			err = afero.WriteFile(c.ClientFs, path, fileText.Bytes(), 0644)
+			err = afero.WriteFile(c.ClientFs, path, fileBytes, 0644)
 			if err != nil {
 				return err
 			}
