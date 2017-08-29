@@ -62,7 +62,7 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 		logFatalIfNotNil("read stdin", err)
 		// trim newline from end of string
 		text = strings.TrimSpace(text)
-		log.Println("text: ", text)
+		log.Println("text:", text)
 
 		switch text {
 		case Delta:
@@ -109,16 +109,17 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			fmt.Fprintln(stdout, fileText)
 
 		case SendTextFile:
-			reader := bufio.NewReader(stdin)
+			log.Println("receiving something")
 
 			path, err := reader.ReadString('\n')
 			logFatalIfNotNil("read stdin", err)
 			// remove newline
 			path = path[0:len(path)-1]
+			log.Println("receiving:", path)
 
 			countStr, err := reader.ReadString('\n')
 			logFatalIfNotNil("read stdin", err)
-			log.Println("receiving", path, countStr)
+			log.Println("size:", countStr)
 
 			byteCount, err := strconv.Atoi(strings.TrimSpace(countStr))
 			logFatalIfNotNil("convert byte count", err)
@@ -145,7 +146,11 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			}
 
 		case "get_all_files":
+			log.Fatal("not implemented")
 			/*TODO: send tarball?*/
+
+		default:
+			log.Fatal("bad input:", text)
 		}
 	}
 
