@@ -344,7 +344,8 @@ func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 		if err != nil {
 			return nil, err
 		}
-		path = strings.TrimSpace(path)
+		// remove newline
+		path = path[0:len(path)-1]
 		serverChecksums[path] = checksum
 	}
 	return serverChecksums, nil
@@ -365,11 +366,16 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 		return err
 	}
 
+	ignoreChecksumCheck := make(map[string]bool)
+
 	// check for files on client not on server
 	for path, _ := range clientChecksums {
 		if _, ok := serverChecksums[path]; !ok {
 			log.Println("pushing", path)
+			ignoreChecksumCheck[path] = true
 			// send file to server
+			fmt.Fprintln(c.serverStdin, SendTextFile)
+			fmt.Fprintln(c.serverStdin, path)
 			fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[path])))
 			fmt.Fprintln(c.serverStdin, c.fileCache[path])
 		}
@@ -378,6 +384,7 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 	for path, _ := range serverChecksums {
 		if _, ok := clientChecksums[path]; !ok {
 			log.Println("downloading", path)
+			ignoreChecksumCheck[path] = true
 			// get file from server
 			fmt.Fprintln(c.serverStdin, GetTextFile)
 			fmt.Fprintln(c.serverStdin, path)
@@ -398,6 +405,8 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 			if err != nil {
 				return err
 			}
+			// read trailing newline
+			reader.ReadByte()
 			fileText := string(fileBytes)
 
 			// write file to cache
@@ -412,7 +421,7 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 
 	// check for checksum mismatches, ignoring missing files
 	for path, clientChecksum := range clientChecksums {
-		if serverChecksums[path] != clientChecksum {
+		if serverChecksums[path] != clientChecksum && !ignoreChecksumCheck[path] {
 			fmt.Fprintln(errorText, "checksum mismatch:", path)
 			isError = true
 		}

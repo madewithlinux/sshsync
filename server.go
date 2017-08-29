@@ -109,8 +109,33 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			fmt.Fprintln(stdout, fileText)
 
 		case SendTextFile:
-			panic("SendTextFile not implemented")
-			// TODO
+			reader := bufio.NewReader(stdin)
+
+			path, err := reader.ReadString('\n')
+			logFatalIfNotNil("read stdin", err)
+			// remove newline
+			path = path[0:len(path)-1]
+
+			countStr, err := reader.ReadString('\n')
+			logFatalIfNotNil("read stdin", err)
+			log.Println("receiving", path, countStr)
+
+			byteCount, err := strconv.Atoi(strings.TrimSpace(countStr))
+			logFatalIfNotNil("convert byte count", err)
+
+			fileBytes := make([]byte, byteCount)
+			_, err = io.ReadFull(reader, fileBytes)
+			logFatalIfNotNil("read file bytes", err)
+			// read trailing newline
+			reader.ReadByte()
+
+			fileText := string(fileBytes)
+
+			// write file to cache
+			c.fileCache[path] = fileText
+			// TODO file mode?
+			err = afero.WriteFile(c.ServerFs, path, fileBytes, 0644)
+			logFatalIfNotNil("write file", err)
 
 		case GetFileHashes:
 			// respond from cache, do not involve disk

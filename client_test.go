@@ -190,3 +190,5 @@ func TestClientWritesDiff(t *testing.T) {
 		t.Fatalf("%s should have been %s", result, expected1)
 	}
 }
+
+// TODO test client/server startup negotiation code
