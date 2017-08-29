@@ -29,9 +29,12 @@ type ClientFolder struct {
 	serverStdout io.Reader
 	serverStdin  io.Writer
 	exitChannel  chan bool
-	// TODO try to not need to put these here directly
-	conn    *ssh.Client
-	session *ssh.Session
+}
+
+func (c *ClientFolder) Close() {
+	if c.serverStdin != nil {
+		fmt.Println(Exit)
+	}
 }
 
 func (c *ClientFolder) makePathAbsolute(path string) string {
@@ -252,36 +255,40 @@ func (c *ClientFolder) OpenSshConnection(user, address string) error {
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	// Dial your ssh server.
-	c.conn, err = ssh.Dial("tcp", address, config)
+
+	// FIXME: conn and session are leaked
+	// probably not a problem in this use-case because we would close these connections right before exiting
+	// the program anyway
+
+	conn, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return err
 	}
 
-	c.session, err = c.conn.NewSession()
+	session, err := conn.NewSession()
 	if err != nil {
 		return err
 	}
 
-	err = c.session.Setenv(EnvSourceDir, "/home/j0sh/Downloads/test sync folder server/")
+	err = session.Setenv(EnvSourceDir, "/home/j0sh/Downloads/test sync folder server/")
 	if err != nil {
 		return err
 	}
 
-	stdin, err := c.session.StdinPipe()
+	stdin, err := session.StdinPipe()
 	if err != nil {
 		return err
 	}
-	stdout, err := c.session.StdoutPipe()
+	stdout, err := session.StdoutPipe()
 	if err != nil {
 		return err
 	}
 	fmt.Println("stdin, stdout", stdin, stdout)
 
 	// TODO
-	//c.session.Setenv(EnvIgnoreCfg, c.IgnoreCfg.String())
+	//session.Setenv(EnvIgnoreCfg, c.IgnoreCfg.String())
 
-	err = c.session.Start(BinName + " -server")
+	err = session.Start(BinName + " -server")
 	if err != nil {
 		return err
 	}
@@ -302,9 +309,13 @@ func ClientMain() {
 		BasePath:  dir,
 		fileCache: make(map[string]string),
 	}
+	defer c.Close()
+
 	// TODO
 	err = c.OpenSshConnection("j0sh", "localhost:22")
 	logFatalIfNotNil("open ssh connection", err)
+	// TODO build cache step
+	// TODO check hashes with server step
 	c.StartWatchFiles(true)
 
 }
