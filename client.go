@@ -4,22 +4,22 @@ import (
 	"bytes"
 	"fmt"
 	// "github.com/d4l3k/go-pry/pry"
+	"bufio"
 	"github.com/fsnotify/fsnotify"
+	"github.com/mkideal/cli"
+	"github.com/pkg/errors"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-	"bufio"
-	"strconv"
-	"github.com/pkg/errors"
-	"github.com/mkideal/cli"
-	"io/ioutil"
 )
 
 const commitTimeout = 200 * time.Millisecond
@@ -369,7 +369,7 @@ func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 			return nil, err
 		}
 		// remove newline
-		path = path[0:len(path)-1]
+		path = path[0 : len(path)-1]
 		serverChecksums[path] = checksum
 	}
 	return serverChecksums, nil
@@ -398,10 +398,23 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 			log.Println("pushing", path)
 			ignoreChecksumCheck[path] = true
 			// send file to server
-			fmt.Fprintln(c.serverStdin, SendTextFile)
-			fmt.Fprintln(c.serverStdin, path)
-			fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[path])))
-			fmt.Fprintln(c.serverStdin, c.fileCache[path])
+			_, err = fmt.Fprintln(c.serverStdin, SendTextFile)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(c.serverStdin, path)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[path])))
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(c.serverStdin, c.fileCache[path])
+			if err != nil {
+				return err
+			}
+			log.Println("pushed", path)
 		}
 	}
 	// check for files on server not on client
