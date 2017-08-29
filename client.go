@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"strconv"
 	"github.com/pkg/errors"
+	"github.com/mkideal/cli"
 )
 
 const commitTimeout = 200 * time.Millisecond
@@ -251,7 +252,7 @@ func (c *ClientFolder) OpenLocalConnection(path string) error {
 	return nil
 }
 
-func (c *ClientFolder) OpenSshConnection(user, address string) error {
+func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) error {
 	// FIXME hard coded test stuff
 
 	sock, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
@@ -285,7 +286,7 @@ func (c *ClientFolder) OpenSshConnection(user, address string) error {
 		return err
 	}
 
-	err = session.Setenv(EnvSourceDir, "/home/j0sh/Downloads/test sync folder server/")
+	err = session.Setenv(EnvSourceDir, serverSidePath)
 	if err != nil {
 		return err
 	}
@@ -484,31 +485,44 @@ func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
 
 ////////////////////////////////////////////
 
+type argT struct {
+	cli.Helper
+	ServerAddress string `cli:"*addr" usage:"server address"`
+	ServerUsername string `cli:"user" usage:"server username" dft:"$USER"`
+	ServerPort string `cli:"port" usage:"server port" dft:"22"`
+	ServerPath string `cli:"*remote" usage:"server path"`
+	LocalPath string `cli:"*local" usage:"local path"`
+}
+
 func ClientMain() {
 
-	var dir, err = os.Getwd()
-	logFatalIfNotNil("get cwd", err)
+	cli.Run(new(argT), func(ctx *cli.Context) error {
+		argv := ctx.Argv().(*argT)
 
-	c := &ClientFolder{
-		ClientFs: afero.NewBasePathFs(afero.NewOsFs(), dir),
-		BasePath: dir,
-		// TODO configurable
-		IgnoreCfg: DefaultIgnoreConfig,
-		fileCache: make(map[string]string),
-	}
-	defer c.Close()
+		var dir = argv.LocalPath
+		err := os.Chdir(dir)
+		logFatalIfNotNil("chdir", err)
 
-	// TODO
-	err = c.OpenSshConnection("j0sh", "localhost:22")
-	logFatalIfNotNil("open ssh connection", err)
-	c.BuildCache()
-	for path, _ := range c.fileCache {
-		log.Println("cache", path)
-	}
-	//err = c.AssertClientAndServerHashesMatch()
-	err = c.TryAutoResolveWithServerState()
-	logFatalIfNotNil("check up to date", err)
-	// TODO check hashes with server step
-	c.StartWatchFiles(true)
+		c := &ClientFolder{
+			ClientFs: afero.NewBasePathFs(afero.NewOsFs(), dir),
+			BasePath: dir,
+			// TODO configurable
+			IgnoreCfg: DefaultIgnoreConfig,
+			fileCache: make(map[string]string),
+		}
+		defer c.Close()
+
+		err = c.OpenSshConnection(argv.ServerPath, argv.ServerUsername, argv.ServerAddress + ":" + argv.ServerPort)
+		logFatalIfNotNil("open ssh connection", err)
+		c.BuildCache()
+		for path, _ := range c.fileCache {
+			log.Println("cache", path)
+		}
+		err = c.TryAutoResolveWithServerState()
+		logFatalIfNotNil("check up to date", err)
+		c.StartWatchFiles(true)
+
+		return nil
+	})
 
 }
