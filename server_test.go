@@ -79,12 +79,9 @@ func TestServerGetHashes(t *testing.T) {
 	server.BuildCache()
 	server.readCommands(stdout, stdin)
 
-
-
 	result := stdout.String()
 	expected := "1\n" + crc64string(string1) + " testFile.txt\n"
 	if result != expected {
 		t.Fatalf("%s should have been %s", result, expected)
 	}
 }
-

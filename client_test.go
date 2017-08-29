@@ -42,6 +42,11 @@ func TestClientSendFileDiffs(t *testing.T) {
 	c.serverStdin = serverStdin
 	c.serverStdout = serverStdout
 
+	c.BuildCache()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// add watches just to build the cache
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -132,7 +137,10 @@ func TestClientWritesDiff(t *testing.T) {
 	c.serverStdin = serverStdin
 	c.serverStdout = serverStdout
 
-
+	c.BuildCache()
+	if err != nil {
+		t.Fatal(err)
+	}
 	err = c.StartWatchFiles(false)
 	if err != nil {
 		t.Fatal(err)

@@ -17,6 +17,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"bufio"
+	"strconv"
+	"github.com/pkg/errors"
 )
 
 const commitTimeout = 200 * time.Millisecond
@@ -192,20 +195,32 @@ func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
 			return err
 		}
 
-		if !c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
-			// add watch
+		// explicitly make sure to watch folders (to make sure that new files are watched)
+		if info.IsDir() || !c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
 			log.Println("path", path)
 			log.Println("abs path", c.makePathAbsolute(path))
 			err := watcher.Add(c.makePathAbsolute(path))
 			logFatalIfNotNil("add initial watch", err)
+		}
+		return nil
+	})
+}
 
-			if !info.IsDir() {
-				// add only files to cache
-				buf, err := afero.ReadFile(c.ClientFs, path)
-				// TODO do not fail hard
-				logFatalIfNotNil("read file", err)
-				c.fileCache[path] = string(buf)
-			}
+////////////////////////////////////////////
+
+func (c *ClientFolder) BuildCache() error {
+
+	return afero.Walk(c.ClientFs, ".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && !c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
+			// add only files to cache
+			buf, err := afero.ReadFile(c.ClientFs, path)
+			// TODO do not fail hard
+			logFatalIfNotNil("read file", err)
+			c.fileCache[path] = string(buf)
 		}
 		return nil
 	})
@@ -299,14 +314,178 @@ func (c *ClientFolder) OpenSshConnection(user, address string) error {
 	return nil
 }
 
+////////////////////////////////////////////
+
+func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
+	fmt.Fprintln(c.serverStdin, GetFileHashes)
+	reader := bufio.NewReader(c.serverStdout)
+
+	countStr, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(countStr))
+	if err != nil {
+		return nil, err
+	}
+
+	serverChecksums := make(map[string]uint64)
+
+	for i := 0; i < count; i++ {
+		checksumStr, err := reader.ReadString(' ')
+		if err != nil {
+			return nil, err
+		}
+		checksum, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
+		if err != nil {
+			return nil, err
+		}
+		path, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		path = strings.TrimSpace(path)
+		serverChecksums[path] = checksum
+	}
+	return serverChecksums, nil
+}
+
+func (c *ClientFolder) TryAutoResolveWithServerState() error {
+	errorText := &bytes.Buffer{}
+	fmt.Fprintln(errorText, "Client-Server mismatch:")
+	isError := false
+
+	clientChecksums := make(map[string]uint64)
+	for path, text := range c.fileCache {
+		clientChecksums[path] = crc64checksum(text)
+	}
+
+	serverChecksums, err := c.getServerChecksums()
+	if err != nil {
+		return err
+	}
+
+	// check for files on client not on server
+	for path, _ := range clientChecksums {
+		if _, ok := serverChecksums[path]; !ok {
+			log.Println("pushing", path)
+			// send file to server
+			fmt.Fprintln(c.serverStdin, lineCount(c.fileCache[path]))
+			fmt.Fprintln(c.serverStdin, c.fileCache[path])
+		}
+	}
+	// check for files on server not on client
+	for path, _ := range serverChecksums {
+		if _, ok := clientChecksums[path]; !ok {
+			log.Println("downloading", path)
+			// get file from server
+			fmt.Fprintln(c.serverStdin, GetTextFile)
+			fmt.Fprintln(c.serverStdin, path)
+
+			// read response
+			reader := bufio.NewReader(c.serverStdout)
+			countStr, err := reader.ReadString('\n')
+			if err != nil {
+				return err
+			}
+			count, err := strconv.Atoi(strings.TrimSpace(countStr))
+			if err != nil {
+				return err
+			}
+			fileText := &bytes.Buffer{}
+			for i := 0; i < count; i++ {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return err
+				}
+				fmt.Fprint(fileText, line)
+			}
+
+			// write file to cache
+			c.fileCache[path] = fileText.String()
+			// TODO file mode?
+			err = afero.WriteFile(c.ClientFs, path, fileText.Bytes(), 0644)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// check for checksum mismatches, ignoring missing files
+	for path, clientChecksum := range clientChecksums {
+		if serverChecksums[path] != clientChecksum {
+			fmt.Fprintln(errorText, "checksum mismatch:", path)
+			isError = true
+		}
+	}
+
+	if isError {
+		return errors.New(errorText.String())
+	} else {
+		return nil
+	}
+}
+
+func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
+	errorText := &bytes.Buffer{}
+	fmt.Fprintln(errorText, "Client-Server mismatch:")
+	isError := false
+
+	clientChecksums := make(map[string]uint64)
+	for path, text := range c.fileCache {
+		clientChecksums[path] = crc64checksum(text)
+	}
+
+	serverChecksums, err := c.getServerChecksums()
+	if err != nil {
+		return err
+	}
+
+	ignoreChecksumCheck := make(map[string]bool)
+	// check for files on client not on server
+	for path, _ := range clientChecksums {
+		if _, ok := serverChecksums[path]; !ok {
+			fmt.Fprintln(errorText, "on client, missing from server:", path)
+			ignoreChecksumCheck[path] = true
+			isError = true
+		}
+	}
+	// check for files on server not on client
+	for path, _ := range serverChecksums {
+		if _, ok := clientChecksums[path]; !ok {
+			fmt.Fprintln(errorText, "on server, missing from client:", path)
+			ignoreChecksumCheck[path] = true
+			isError = true
+		}
+	}
+
+	// check for checksum mismatches, ignoring missing files
+	for path, clientChecksum := range clientChecksums {
+		if serverChecksums[path] != clientChecksum && !ignoreChecksumCheck[path] {
+			fmt.Fprintln(errorText, "checksum mismatch:", path)
+			isError = true
+		}
+	}
+
+	if isError {
+		return errors.New(errorText.String())
+	} else {
+		return nil
+	}
+}
+
+////////////////////////////////////////////
+
 func ClientMain() {
 
 	var dir, err = os.Getwd()
 	logFatalIfNotNil("get cwd", err)
 
 	c := &ClientFolder{
-		ClientFs:  afero.NewBasePathFs(afero.NewOsFs(), dir),
-		BasePath:  dir,
+		ClientFs: afero.NewBasePathFs(afero.NewOsFs(), dir),
+		BasePath: dir,
+		// TODO configurable
+		IgnoreCfg: DefaultIgnoreConfig,
 		fileCache: make(map[string]string),
 	}
 	defer c.Close()
@@ -314,7 +493,13 @@ func ClientMain() {
 	// TODO
 	err = c.OpenSshConnection("j0sh", "localhost:22")
 	logFatalIfNotNil("open ssh connection", err)
-	// TODO build cache step
+	c.BuildCache()
+	for path, _ := range c.fileCache {
+		log.Println("cache", path)
+	}
+	//err = c.AssertClientAndServerHashesMatch()
+	err = c.TryAutoResolveWithServerState()
+	logFatalIfNotNil("check up to date", err)
 	// TODO check hashes with server step
 	c.StartWatchFiles(true)
 

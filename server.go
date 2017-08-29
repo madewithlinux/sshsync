@@ -22,6 +22,8 @@ type ServerConfig struct {
 func NewServerConfig(fs afero.Fs) *ServerConfig {
 	return &ServerConfig{
 		fileCache: make(map[string]string),
+		// TODO configurable
+		IgnoreCfg: DefaultIgnoreConfig,
 		ServerFs:  fs,
 	}
 }
@@ -105,6 +107,9 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			fileText := c.fileCache[path]
 			fmt.Fprintln(stdout, lineCount(fileText))
 			fmt.Fprintln(stdout, fileText)
+
+		case SendTextFile:
+			// TODO
 
 		case GetFileHashes:
 			// respond from cache, do not involve disk

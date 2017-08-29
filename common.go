@@ -33,6 +33,12 @@ const (
 	// text of file
 	GetTextFile = "get_text_file"
 
+	// send a text file to the server
+	// format:
+	// <number of lines>
+	// <raw text file>
+	SendTextFile = "send_text_file"
+
 	// retrieve hash of all files on server
 	// response format:
 	// <number of files>
@@ -46,7 +52,6 @@ const (
 	// must start with LC_ to go through ssh for some reason
 	EnvSourceDir = "LC_SSHSYNC_SOURCE_DIR"
 	EnvIgnoreCfg = "LC_SSHSYNC_IGNORE_CFG"
-
 
 	BinName = "sshsync"
 )
@@ -161,7 +166,10 @@ func lineCount(text string) int {
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)
 
+func crc64checksum(content string) uint64 {
+	return crc64.Checksum([]byte(content), ecmaTable)
+}
+
 func crc64string(content string) string {
-	var digest = crc64.Checksum([]byte(content), ecmaTable)
-	return fmt.Sprintf("%x", digest)
+	return fmt.Sprintf("%0X", crc64checksum(content))
 }
