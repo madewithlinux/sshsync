@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -381,8 +382,8 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 	isError := false
 
 	clientChecksums := make(map[string]uint64)
-	for path, text := range c.fileCache {
-		clientChecksums[path] = crc64checksum(text)
+	for filePath, text := range c.fileCache {
+		clientChecksums[filePath] = crc64checksum(text)
 	}
 
 	serverChecksums, err := c.getServerChecksums()
@@ -393,38 +394,38 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 	ignoreChecksumCheck := make(map[string]bool)
 
 	// check for files on client not on server
-	for path, _ := range clientChecksums {
-		if _, ok := serverChecksums[path]; !ok {
-			log.Println("pushing", path)
-			ignoreChecksumCheck[path] = true
+	for filePath := range clientChecksums {
+		if _, ok := serverChecksums[filePath]; !ok {
+			log.Println("pushing", filePath)
+			ignoreChecksumCheck[filePath] = true
 			// send file to server
 			_, err = fmt.Fprintln(c.serverStdin, SendTextFile)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, path)
+			_, err = fmt.Fprintln(c.serverStdin, filePath)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[path])))
+			_, err = fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[filePath])))
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, c.fileCache[path])
+			_, err = fmt.Fprintln(c.serverStdin, c.fileCache[filePath])
 			if err != nil {
 				return err
 			}
-			log.Println("pushed", path)
+			log.Println("pushed", filePath)
 		}
 	}
 	// check for files on server not on client
-	for path, _ := range serverChecksums {
-		if _, ok := clientChecksums[path]; !ok {
-			log.Println("downloading", path)
-			ignoreChecksumCheck[path] = true
+	for filePath := range serverChecksums {
+		if _, ok := clientChecksums[filePath]; !ok {
+			log.Println("downloading", filePath)
+			ignoreChecksumCheck[filePath] = true
 			// get file from server
 			fmt.Fprintln(c.serverStdin, GetTextFile)
-			fmt.Fprintln(c.serverStdin, path)
+			fmt.Fprintln(c.serverStdin, filePath)
 
 			// read response
 			reader := bufio.NewReader(c.serverStdout)
@@ -447,9 +448,15 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 			fileText := string(fileBytes)
 
 			// write file to cache
-			c.fileCache[path] = fileText
+			c.fileCache[filePath] = fileText
+			// make sure directory exists before writing file
+			dirname := path.Dir(filePath)
+			if dirname != "." {
+				// TODO mode
+				c.ClientFs.MkdirAll(dirname, 0755)
+			}
 			// TODO file mode?
-			err = afero.WriteFile(c.ClientFs, path, fileBytes, 0644)
+			err = afero.WriteFile(c.ClientFs, filePath, fileBytes, 0644)
 			if err != nil {
 				return err
 			}
@@ -457,9 +464,9 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 	}
 
 	// check for checksum mismatches, ignoring missing files
-	for path, clientChecksum := range clientChecksums {
-		if serverChecksums[path] != clientChecksum && !ignoreChecksumCheck[path] {
-			fmt.Fprintln(errorText, "checksum mismatch:", path)
+	for filePath, clientChecksum := range clientChecksums {
+		if serverChecksums[filePath] != clientChecksum && !ignoreChecksumCheck[filePath] {
+			fmt.Fprintln(errorText, "checksum mismatch:", filePath)
 			isError = true
 		}
 	}
