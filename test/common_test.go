@@ -1,14 +1,15 @@
-package sshsync
+package test
 
 import (
 	"testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/spf13/afero"
+	"github.com/Joshua-Wright/sshsync"
 )
 
 func TestIgnoreConfig_ShouldIgnore(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	ignore1 := &IgnoreConfig{
+	ignore1 := &sshsync.IgnoreConfig{
 		Extensions: []string{".test", ".txt"},
 		GlobIgnore: []string{".git/*", "ignored/*"},
 	}

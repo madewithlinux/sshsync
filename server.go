@@ -32,7 +32,7 @@ func NewServerConfig(fs afero.Fs) *ServerConfig {
 	}
 }
 
-func (c *ServerConfig) buildCache() {
+func (c *ServerConfig) BuildCache() {
 	log.Println("recursively caching ", c.path)
 	err := afero.Walk(c.ServerFs, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -86,7 +86,7 @@ func (c *ServerConfig) Delta(deltas TextFileDeltas, _ *int) error {
 	return nil
 }
 
-func (c *ServerConfig) readCommands(conn io.ReadWriteCloser) {
+func (c *ServerConfig) ReadCommands(conn io.ReadWriteCloser) {
 	c.server = rpc.NewServer()
 	c.server.Register(c)
 	c.server.ServeConn(conn)
@@ -132,7 +132,7 @@ func ServerMain() {
 
 	server.IgnoreCfg = DefaultIgnoreConfig
 	server.path = wd
-	server.buildCache()
+	server.BuildCache()
 
-	server.readCommands(&ReadWriteCloseAdapter{os.Stdout, os.Stdin})
+	server.ReadCommands(&ReadWriteCloseAdapter{os.Stdout, os.Stdin})
 }

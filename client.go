@@ -3,7 +3,6 @@ package sshsync
 import (
 	"bytes"
 	"fmt"
-	// "github.com/d4l3k/go-pry/pry"
 	"bufio"
 	"github.com/fsnotify/fsnotify"
 	"github.com/mkideal/cli"
@@ -30,15 +29,15 @@ type ClientFolder struct {
 	BasePath     string
 	ClientFs     afero.Fs
 	IgnoreCfg    IgnoreConfig
-	fileCache    map[string]string
-	serverStdout io.Reader
-	serverStdin  io.Writer
-	exitChannel  chan bool
-	client       *rpc.Client
+	FileCache    map[string]string
+	ServerStdout io.Reader
+	ServerStdin  io.Writer
+	ExitChannel  chan bool
+	Client       *rpc.Client
 }
 
 func (c *ClientFolder) Close() {
-	if c.serverStdin != nil {
+	if c.ServerStdin != nil {
 		fmt.Println(Exit)
 	}
 }
@@ -63,12 +62,8 @@ func (c *ClientFolder) makePathRelative(absPath string) string {
 // FIXME figure out why this package needs to carry around this object
 var dmp = diffmatchpatch.New()
 
-func (c *ClientFolder) sendFileDiffs(files map[string]bool) error {
-
-	buf := &bytes.Buffer{}
-	// header
-	fmt.Fprintln(buf, Delta)
-	fmt.Fprintln(buf, len(files))
+func (c *ClientFolder) SendFileDiffs(files map[string]bool) error {
+	buf := TextFileDeltas{}
 
 	for path := range files {
 		log.Println("update: ", path)
@@ -76,36 +71,30 @@ func (c *ClientFolder) sendFileDiffs(files map[string]bool) error {
 		newBuf, err := afero.ReadFile(c.ClientFs, path)
 		if err != nil {
 			// silently skip files that can't be read
+			log.Println("failed to read changed file", err)
 			continue
 		}
 		newStr := string(newBuf)
 
 		// calculate diff
-		diffs := dmp.DiffMain(c.fileCache[path], newStr, false)
+		diffs := dmp.DiffMain(c.FileCache[path], newStr, false)
 		delta := dmp.DiffToDelta(diffs)
 
 		// update cache
-		c.fileCache[path] = newStr
-
+		c.FileCache[path] = newStr
 		// write to buffer
-		fmt.Fprintln(buf, c.makePathRelative(path))
-		fmt.Fprintln(buf, delta)
+		buf = append(buf, TextFileDelta{c.makePathRelative(path), delta})
 	}
-	_, err := fmt.Fprint(c.serverStdin, buf.String())
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return c.Client.Call(ServerConfig_Delta, buf, nil)
 }
 
 func (c *ClientFolder) StopWatchFiles() {
-	c.exitChannel <- true
+	c.ExitChannel <- true
 }
 
 func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 	// initialize exit channel
-	c.exitChannel = make(chan bool)
+	c.ExitChannel = make(chan bool)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -113,7 +102,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 		return err
 	}
 
-	err = c.addWatches(watcher)
+	err = c.AddWatches(watcher)
 	if err != nil {
 		log.Println("failed to add watchers", err)
 		return err
@@ -128,7 +117,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 		for {
 			select {
 			case <-shouldCommit:
-				err := c.sendFileDiffs(filesToAdd)
+				err := c.SendFileDiffs(filesToAdd)
 				if err != nil {
 					log.Println("failed to send, will retry", err)
 					waitingForCommit = true
@@ -169,7 +158,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 			case err := <-watcher.Errors:
 				logFatalIfNotNil("watcher error", err)
 
-			case _ = <-c.exitChannel:
+			case _ = <-c.ExitChannel:
 				log.Println("quitting watch thread")
 				watcher.Close()
 				return
@@ -186,7 +175,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 	return nil
 }
 
-func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
+func (c *ClientFolder) AddWatches(watcher *fsnotify.Watcher) error {
 	err := watcher.Add(c.BasePath)
 	if err != nil {
 		log.Println("failed to add base watch", err)
@@ -223,7 +212,7 @@ func (c *ClientFolder) BuildCache() error {
 			buf, err := afero.ReadFile(c.ClientFs, path)
 			// TODO do not fail hard
 			logFatalIfNotNil("read file", err)
-			c.fileCache[path] = string(buf)
+			c.FileCache[path] = string(buf)
 		}
 		return nil
 	})
@@ -248,10 +237,10 @@ func (c *ClientFolder) OpenLocalConnection(path string) error {
 		return err
 	}
 
-	c.serverStdout = stdout
-	c.serverStdin = stdin
+	c.ServerStdout = stdout
+	c.ServerStdin = stdin
 
-	c.client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
+	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
 
 	return nil
 }
@@ -337,10 +326,10 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 		return err
 	}
 
-	c.serverStdout = stdout
-	c.serverStdin = stdin
+	c.ServerStdout = stdout
+	c.ServerStdin = stdin
 
-	c.client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
+	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
 
 	return nil
 }
@@ -349,7 +338,7 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 
 func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	out := make(map[string]uint64)
-	err := c.client.Call(ServerConfig_GetFileHashes, 0, out)
+	err := c.Client.Call(ServerConfig_GetFileHashes, 0, out)
 	return out, err
 }
 
@@ -359,7 +348,7 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 	isError := false
 
 	clientChecksums := make(map[string]uint64)
-	for filePath, text := range c.fileCache {
+	for filePath, text := range c.FileCache {
 		clientChecksums[filePath] = crc64checksum(text)
 	}
 
@@ -370,42 +359,42 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 
 	ignoreChecksumCheck := make(map[string]bool)
 
-	// check for files on client not on server
+	// check for files on Client not on server
 	for filePath := range clientChecksums {
 		if _, ok := serverChecksums[filePath]; !ok {
 			log.Println("pushing", filePath)
 			ignoreChecksumCheck[filePath] = true
 			// send file to server
-			_, err = fmt.Fprintln(c.serverStdin, SendTextFile)
+			_, err = fmt.Fprintln(c.ServerStdin, SendTextFile)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, filePath)
+			_, err = fmt.Fprintln(c.ServerStdin, filePath)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, len([]byte(c.fileCache[filePath])))
+			_, err = fmt.Fprintln(c.ServerStdin, len([]byte(c.FileCache[filePath])))
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(c.serverStdin, c.fileCache[filePath])
+			_, err = fmt.Fprintln(c.ServerStdin, c.FileCache[filePath])
 			if err != nil {
 				return err
 			}
 			log.Println("pushed", filePath)
 		}
 	}
-	// check for files on server not on client
+	// check for files on server not on Client
 	for filePath := range serverChecksums {
 		if _, ok := clientChecksums[filePath]; !ok {
 			log.Println("downloading", filePath)
 			ignoreChecksumCheck[filePath] = true
 			// get file from server
-			fmt.Fprintln(c.serverStdin, GetTextFile)
-			fmt.Fprintln(c.serverStdin, filePath)
+			fmt.Fprintln(c.ServerStdin, GetTextFile)
+			fmt.Fprintln(c.ServerStdin, filePath)
 
 			// read response
-			reader := bufio.NewReader(c.serverStdout)
+			reader := bufio.NewReader(c.ServerStdout)
 			countStr, err := reader.ReadString('\n')
 			if err != nil {
 				return err
@@ -425,7 +414,7 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 			fileText := string(fileBytes)
 
 			// write file to cache
-			c.fileCache[filePath] = fileText
+			c.FileCache[filePath] = fileText
 			// make sure directory exists before writing file
 			dirname := path.Dir(filePath)
 			if dirname != "." {
@@ -461,7 +450,7 @@ func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
 	isError := false
 
 	clientChecksums := make(map[string]uint64)
-	for path, text := range c.fileCache {
+	for path, text := range c.FileCache {
 		clientChecksums[path] = crc64checksum(text)
 	}
 
@@ -471,18 +460,18 @@ func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
 	}
 
 	ignoreChecksumCheck := make(map[string]bool)
-	// check for files on client not on server
+	// check for files on Client not on server
 	for path, _ := range clientChecksums {
 		if _, ok := serverChecksums[path]; !ok {
-			fmt.Fprintln(errorText, "on client, missing from server:", path)
+			fmt.Fprintln(errorText, "on Client, missing from server:", path)
 			ignoreChecksumCheck[path] = true
 			isError = true
 		}
 	}
-	// check for files on server not on client
+	// check for files on server not on Client
 	for path, _ := range serverChecksums {
 		if _, ok := clientChecksums[path]; !ok {
-			fmt.Fprintln(errorText, "on server, missing from client:", path)
+			fmt.Fprintln(errorText, "on server, missing from Client:", path)
 			ignoreChecksumCheck[path] = true
 			isError = true
 		}
@@ -528,14 +517,14 @@ func ClientMain() {
 			BasePath: dir,
 			// TODO configurable
 			IgnoreCfg: DefaultIgnoreConfig,
-			fileCache: make(map[string]string),
+			FileCache: make(map[string]string),
 		}
 		defer c.Close()
 
 		err = c.OpenSshConnection(argv.ServerPath, argv.ServerUsername, argv.ServerAddress+":"+argv.ServerPort)
 		logFatalIfNotNil("open ssh connection", err)
 		c.BuildCache()
-		for path, _ := range c.fileCache {
+		for path, _ := range c.FileCache {
 			log.Println("cache", path)
 		}
 		err = c.TryAutoResolveWithServerState()

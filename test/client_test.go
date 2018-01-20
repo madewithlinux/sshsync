@@ -1,4 +1,4 @@
-package sshsync
+package test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 	"github.com/stretchr/testify/assert"
+	"github.com/Joshua-Wright/sshsync"
 )
 
 func TestClientSendFileDiffs(t *testing.T) {
@@ -27,24 +28,24 @@ func TestClientSendFileDiffs(t *testing.T) {
 
 	t.Log(clientPath)
 
-	c := &ClientFolder{
+	c := &sshsync.ClientFolder{
 		BasePath:  clientPath,
 		ClientFs:  clientFs,
-		fileCache: make(map[string]string),
+		FileCache: make(map[string]string),
 	}
 	serverStdin := &bytes.Buffer{}
 	serverStdout := &bytes.Buffer{}
-	c.serverStdin = serverStdin
-	c.serverStdout = serverStdout
+	c.ServerStdin = serverStdin
+	c.ServerStdout = serverStdout
 
-	c.BuildCache()
+	err = c.BuildCache()
 	assert.NoError(t, err)
 
 	// add watches just to build the cache
 	watcher, err := fsnotify.NewWatcher()
 	assert.NoError(t, err)
 	defer watcher.Close()
-	err = c.addWatches(watcher)
+	err = c.AddWatches(watcher)
 	assert.NoError(t, err)
 
 	// update existing file
@@ -58,20 +59,20 @@ func TestClientSendFileDiffs(t *testing.T) {
 	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
 	assert.NoError(t, err)
 
-	err = c.sendFileDiffs(map[string]bool{
+	err = c.SendFileDiffs(map[string]bool{
 		"testfile1.txt": true,
 		"newfile.txt":   true,
 	})
 	assert.NoError(t, err)
 
 	result := serverStdin.String()
-	expected2 := Delta + "\n" +
+	expected2 := sshsync.Delta + "\n" +
 		"2\n" +
 		"newfile.txt\n" +
 		"+new%0A%09content%0A\n" +
 		"testfile1.txt\n" +
 		"=5\t-1\t+2%0A\n"
-	expected1 := Delta + "\n" +
+	expected1 := sshsync.Delta + "\n" +
 		"2\n" +
 		"testfile1.txt\n" +
 		"=5\t-1\t+2%0A\n" +
@@ -99,23 +100,23 @@ func TestClientWritesDiff(t *testing.T) {
 
 	t.Log(clientPath)
 
-	c := &ClientFolder{
-		IgnoreCfg: DefaultIgnoreConfig,
+	c := &sshsync.ClientFolder{
+		IgnoreCfg: sshsync.DefaultIgnoreConfig,
 		BasePath:  clientPath,
 		ClientFs:  clientFs,
-		fileCache: make(map[string]string),
+		FileCache: make(map[string]string),
 	}
 	serverStdin := &bytes.Buffer{}
 	serverStdout := &bytes.Buffer{}
-	c.serverStdin = serverStdin
-	c.serverStdout = serverStdout
+	c.ServerStdin = serverStdin
+	c.ServerStdout = serverStdout
 
 	c.BuildCache()
 	assert.NoError(t, err)
 	err = c.StartWatchFiles(false)
 	assert.NoError(t, err)
 
-	// sleep to let client setup watches
+	// sleep to let Client setup watches
 	time.Sleep(500 * time.Millisecond)
 
 	// update existing file
@@ -129,17 +130,17 @@ func TestClientWritesDiff(t *testing.T) {
 	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
 	assert.NoError(t, err)
 
-	// sleep to let client see progress
+	// sleep to let Client see progress
 	time.Sleep(500 * time.Millisecond)
 
 	result := serverStdin.String()
-	expected2 := Delta + "\n" +
+	expected2 := sshsync.Delta + "\n" +
 		"2\n" +
 		"newfile.txt\n" +
 		"+new%0A%09content%0A\n" +
 		"testfile1.txt\n" +
 		"=5\t-1\t+2%0A\n"
-	expected1 := Delta + "\n" +
+	expected1 := sshsync.Delta + "\n" +
 		"2\n" +
 		"testfile1.txt\n" +
 		"=5\t-1\t+2%0A\n" +
@@ -152,4 +153,4 @@ func TestClientWritesDiff(t *testing.T) {
 	}
 }
 
-// TODO test client/server startup negotiation code
+// TODO test Client/server startup negotiation code

@@ -50,7 +50,7 @@ const (
 	GetFileHashes = "get_file_hashes"
 
 	// environment constants
-	// used by the client to pass parameters to the server
+	// used by the Client to pass parameters to the server
 	// (to avoid shell interpolation)
 	// must start with LC_ to go through ssh for some reason
 	EnvSourceDir = "LC_SSHSYNC_SOURCE_DIR"
@@ -202,7 +202,7 @@ type TextFileDelta struct {
 type TextFileDeltas []TextFileDelta
 
 func TwoWayPipe() (io.ReadWriteCloser, io.ReadWriteCloser) {
-	// server read, client write (and vice versa)
+	// server read, Client write (and vice versa)
 	sr, cw := io.Pipe()
 	cr, sw := io.Pipe()
 	return &ReadWriteCloseAdapter{cr, cw}, &ReadWriteCloseAdapter{sr, sw}
