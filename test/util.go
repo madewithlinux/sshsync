@@ -18,6 +18,17 @@ func WithFolder(t *testing.T, testName string, f func(absPath string, fs afero.F
 	f(absPath, fs)
 }
 
+func WithClientServerFolders(t *testing.T, testName string, f func(absPath string, clientFs afero.Fs, serverFs afero.Fs)) {
+	err := os.Mkdir(testName, 0755)
+	assert.NoError(t, err)
+	defer os.RemoveAll(testName)
+	absPath, err := filepath.Abs(testName)
+	assert.NoError(t, err)
+	clientFs := afero.NewBasePathFs(afero.NewOsFs(), testName)
+	var serverFs = afero.NewMemMapFs()
+	f(absPath, clientFs, serverFs)
+}
+
 
 func AssertFileContent(t *testing.T, fs afero.Fs, path string, content string) {
 	fileBytes, err := afero.ReadFile(fs, path)

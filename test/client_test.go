@@ -76,7 +76,3 @@ func TestClientSendFileDiffs(t *testing.T) {
 		}
 	})
 }
-
-
-
-// TODO test Client/server startup negotiation code

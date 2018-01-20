@@ -327,7 +327,7 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 
 func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	out := make(map[string]uint64)
-	err := c.Client.Call(Server_GetFileHashes, 0, out)
+	err := c.Client.Call(Server_GetFileHashes, 0, &out)
 	return out, err
 }
 
