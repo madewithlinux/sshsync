@@ -8,6 +8,7 @@ import (
 	"strings"
 	"hash/crc64"
 	"fmt"
+	"io"
 )
 
 // protocol constants
@@ -175,3 +176,22 @@ func crc64checksum(content string) uint64 {
 func crc64string(content string) string {
 	return fmt.Sprintf("%0X", crc64checksum(content))
 }
+
+type ReadWriteCloseAdapter struct {
+	Reader io.Reader
+	Writer io.WriteCloser
+}
+
+func (s *ReadWriteCloseAdapter) Write(p []byte) (n int, err error) { return s.Writer.Write(p) }
+func (s *ReadWriteCloseAdapter) Close() error                      { return s.Writer.Close() }
+func (s *ReadWriteCloseAdapter) Read(p []byte) (n int, err error)  { return s.Reader.Read(p) }
+
+type TextFile struct {
+	name     string
+	path     string
+	content  string
+	checksum uint64
+}
+
+// map of path to checksum
+type ChecksumIndex map[string]uint64

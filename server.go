@@ -10,6 +10,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"net/rpc"
+)
+
+const(
+	ServerConfig_GetFileHashes = "ServerConfig.GetFileHashes"
 )
 
 type ServerConfig struct {
@@ -17,6 +22,7 @@ type ServerConfig struct {
 	IgnoreCfg IgnoreConfig
 	path      string
 	fileCache map[string]string
+	server    *rpc.Server
 }
 
 func NewServerConfig(fs afero.Fs) *ServerConfig {
@@ -28,7 +34,7 @@ func NewServerConfig(fs afero.Fs) *ServerConfig {
 	}
 }
 
-func (c *ServerConfig) BuildCache() {
+func (c *ServerConfig) buildCache() {
 	log.Println("recursively caching ", c.path)
 	err := afero.Walk(c.ServerFs, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -52,7 +58,12 @@ func (c *ServerConfig) BuildCache() {
 	logFatalIfNotNil("walk", err)
 }
 
-func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
+func (c *ServerConfig) readCommands(stdout io.WriteCloser, stdin io.Reader) {
+	c.server = rpc.NewServer()
+	c.server.Register(c)
+	c.server.ServeConn(&ReadWriteCloseAdapter{stdin, stdout})
+	return
+
 	dmp := diffmatchpatch.New()
 	reader := bufio.NewReader(stdin)
 	log.Println("start")
@@ -138,12 +149,12 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 			err = afero.WriteFile(c.ServerFs, path, fileBytes, 0644)
 			logFatalIfNotNil("write file", err)
 
-		case GetFileHashes:
-			// respond from cache, do not involve disk
-			fmt.Fprintln(stdout, len(c.fileCache))
-			for path, text := range c.fileCache {
-				fmt.Fprintln(stdout, crc64string(text), path)
-			}
+		//case GetFileHashes:
+		//	// respond from cache, do not involve disk
+		//	fmt.Fprintln(stdout, len(c.fileCache))
+		//	for path, text := range c.fileCache {
+		//		fmt.Fprintln(stdout, crc64string(text), path)
+		//	}
 
 		case "get_all_files":
 			log.Fatal("not implemented")
@@ -154,6 +165,21 @@ func (c *ServerConfig) readCommands(stdout io.Writer, stdin io.Reader) {
 		}
 	}
 
+}
+
+func (c *ServerConfig) GetFileHashes(i int, index *ChecksumIndex) error {
+	m := make(ChecksumIndex)
+	for path, text := range c.fileCache {
+		log.Println(path)
+		m[path] = crc64checksum(text)
+	}
+	*index = m
+	return nil
+}
+
+func (c *ServerConfig) GetTextFile(path string, content *string) error {
+	*content = c.fileCache[path]
+	return nil
 }
 
 func ServerMain() {
@@ -173,7 +199,7 @@ func ServerMain() {
 
 	server.IgnoreCfg = DefaultIgnoreConfig
 	server.path = wd
-	server.BuildCache()
+	server.buildCache()
 
 	server.readCommands(os.Stdout, os.Stdin)
 }

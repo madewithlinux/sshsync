@@ -6,6 +6,8 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 	"testing"
+	"io"
+	"net/rpc"
 )
 
 func TestServer(t *testing.T) {
@@ -31,7 +33,7 @@ func TestServer(t *testing.T) {
 
 	// test
 	server := NewServerConfig(serverFs)
-	server.BuildCache()
+	server.buildCache()
 	server.readCommands(stdout, stdin)
 
 	// verify file now contains string2
@@ -50,7 +52,7 @@ func TestServer(t *testing.T) {
 	afero.WriteFile(serverFs, "fileToRead.txt", []byte("line 1\nline two\nthird line\n"), 0644)
 
 	// test
-	server.BuildCache()
+	server.buildCache()
 	server.readCommands(stdout, stdin)
 
 	result := stdout.String()
@@ -68,22 +70,25 @@ func TestServerGetHashes(t *testing.T) {
 	// write test data to file
 	afero.WriteFile(serverFs, "testFile.txt", []byte(string1), 0644)
 
-	// make server commands to execute
-	stdin := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
-	fmt.Fprintln(stdin, GetFileHashes)
-	fmt.Fprintln(stdin, Exit)
+	// server read, client write (and vice versa)
+	sr, cw := io.Pipe()
+	cr, sw := io.Pipe()
 
 	// test
 	server := NewServerConfig(serverFs)
-	server.BuildCache()
-	server.readCommands(stdout, stdin)
+	server.buildCache()
+	go server.readCommands(sw, sr)
+	conn := &ReadWriteCloseAdapter{cr, cw}
+	client := rpc.NewClient(conn)
 
-
-	result := stdout.String()
-	expected := "1\n" + crc64string(string1) + " testFile.txt\n"
-	if result != expected {
-		t.Fatalf("%s should have been %s", result, expected)
+	var out ChecksumIndex
+	err := client.Call(ServerConfig_GetFileHashes, 0, &out)
+	if err != nil {
+		t.Fatalf("%s", err)
 	}
+	if _, ok := out["testFile.txt"]; !ok {
+		t.Fatalf("file not found in index. index: %s", out)
+	}
+	sr.Close()
+	cr.Close()
 }
-

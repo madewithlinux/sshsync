@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"net/rpc"
 )
 
 const commitTimeout = 200 * time.Millisecond
@@ -33,6 +34,7 @@ type ClientFolder struct {
 	serverStdout io.Reader
 	serverStdin  io.Writer
 	exitChannel  chan bool
+	client       *rpc.Client
 }
 
 func (c *ClientFolder) Close() {
@@ -249,6 +251,8 @@ func (c *ClientFolder) OpenLocalConnection(path string) error {
 	c.serverStdout = stdout
 	c.serverStdin = stdin
 
+	c.client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
+
 	return nil
 }
 
@@ -336,44 +340,49 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 	c.serverStdout = stdout
 	c.serverStdin = stdin
 
+	c.client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
+
 	return nil
 }
 
 ////////////////////////////////////////////
 
 func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
-	fmt.Fprintln(c.serverStdin, GetFileHashes)
-	reader := bufio.NewReader(c.serverStdout)
-
-	countStr, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	count, err := strconv.Atoi(strings.TrimSpace(countStr))
-	if err != nil {
-		return nil, err
-	}
-
-	serverChecksums := make(map[string]uint64)
-
-	for i := 0; i < count; i++ {
-		checksumStr, err := reader.ReadString(' ')
-		if err != nil {
-			return nil, err
-		}
-		checksum, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
-		if err != nil {
-			return nil, err
-		}
-		path, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		// remove newline
-		path = path[0 : len(path)-1]
-		serverChecksums[path] = checksum
-	}
-	return serverChecksums, nil
+	out := make(map[string]uint64)
+	err := c.client.Call(ServerConfig_GetFileHashes, 0, out)
+	return out, err
+	//fmt.Fprintln(c.serverStdin, GetFileHashes)
+	//Reader := bufio.NewReader(c.serverStdout)
+	//
+	//countStr, err := Reader.ReadString('\n')
+	//if err != nil {
+	//	return nil, err
+	//}
+	//count, err := strconv.Atoi(strings.TrimSpace(countStr))
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//serverChecksums := make(map[string]uint64)
+	//
+	//for i := 0; i < count; i++ {
+	//	checksumStr, err := Reader.ReadString(' ')
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	checksum, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	path, err := Reader.ReadString('\n')
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	// remove newline
+	//	path = path[0: len(path)-1]
+	//	serverChecksums[path] = checksum
+	//}
+	//return serverChecksums, nil
 }
 
 func (c *ClientFolder) TryAutoResolveWithServerState() error {
