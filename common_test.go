@@ -1,4 +1,4 @@
-package sshsync
+package sshsync_test
 
 import (
 	"testing"
