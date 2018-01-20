@@ -1,4 +1,4 @@
-package test
+package sshsync
 
 import (
 	"github.com/stretchr/testify/assert"
