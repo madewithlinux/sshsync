@@ -37,9 +37,7 @@ type ClientFolder struct {
 }
 
 func (c *ClientFolder) Close() {
-	if c.ServerStdin != nil {
-		fmt.Println(Exit)
-	}
+	c.Client.Close()
 }
 
 func (c *ClientFolder) makePathAbsolute(path string) string {
@@ -85,7 +83,7 @@ func (c *ClientFolder) SendFileDiffs(files map[string]bool) error {
 		// write to buffer
 		buf = append(buf, TextFileDelta{c.makePathRelative(path), delta})
 	}
-	return c.Client.Call(ServerConfig_Delta, buf, nil)
+	return c.Client.Call(Server_Delta, buf, nil)
 }
 
 func (c *ClientFolder) StopWatchFiles() {
@@ -338,7 +336,7 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 
 func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	out := make(map[string]uint64)
-	err := c.Client.Call(ServerConfig_GetFileHashes, 0, out)
+	err := c.Client.Call(Server_GetFileHashes, 0, out)
 	return out, err
 }
 

@@ -25,7 +25,7 @@ func TestServerGetTextFile(t *testing.T) {
 	client := rpc.NewClient(clientConn)
 
 	var out string
-	err := client.Call(sshsync.ServerConfig_GetTextFile, "testFile.txt", &out)
+	err := client.Call(sshsync.Server_GetTextFile, "testFile.txt", &out)
 	if err != nil {
 		t.Fatalf("%s", err)
 	}
@@ -50,7 +50,7 @@ func TestServerGetHashes(t *testing.T) {
 	client := rpc.NewClient(clientConn)
 
 	var out sshsync.ChecksumIndex
-	err := client.Call(sshsync.ServerConfig_GetFileHashes, 0, &out)
+	err := client.Call(sshsync.Server_GetFileHashes, 0, &out)
 	assert.NoError(t, err)
 	_, ok := out["testFile.txt"]
 	assert.True(t, ok)
@@ -91,9 +91,9 @@ func TestServerSendTextFile(t *testing.T) {
 	assert.Equal(t, string1, string(b))
 
 	// send files
-	err = client.Call(sshsync.ServerConfig_SendTextFile, overwriteFile, nil)
+	err = client.Call(sshsync.Server_SendTextFile, overwriteFile, nil)
 	assert.NoError(t, err)
-	err = client.Call(sshsync.ServerConfig_SendTextFile, newFile, nil)
+	err = client.Call(sshsync.Server_SendTextFile, newFile, nil)
 	assert.NoError(t, err)
 
 	// make sure file is overwritten
@@ -130,7 +130,7 @@ func TestServerDelta(t *testing.T) {
 
 	// test call
 	client := rpc.NewClient(clientConn)
-	err := client.Call(sshsync.ServerConfig_Delta, sshsync.TextFileDeltas{
+	err := client.Call(sshsync.Server_Delta, sshsync.TextFileDeltas{
 		{
 			Path:  "testFile.txt",
 			Delta: delta,

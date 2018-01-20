@@ -13,18 +13,6 @@ import (
 
 // protocol constants
 const (
-	// apply a Delta to a file
-	// format:
-	// Delta
-	// <number of files>
-	// <filename>
-	// <Delta>
-	// server sends no response
-	Delta = "Delta"
-
-	// stop the server
-	Exit = "exit"
-
 	// retrieve a file from server
 	// format:
 	// get_text_file
@@ -41,13 +29,6 @@ const (
 	// <raw text file>
 	// <newline>
 	SendTextFile = "send_text_file"
-
-	// retrieve hash of all files on server
-	// response format:
-	// <number of files>
-	// <crc64>
-	// <filename>
-	GetFileHashes = "get_file_hashes"
 
 	// environment constants
 	// used by the Client to pass parameters to the server

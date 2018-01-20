@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	ServerConfig_GetFileHashes = "ServerConfig.GetFileHashes"
-	ServerConfig_GetTextFile   = "ServerConfig.GetTextFile"
-	ServerConfig_SendTextFile  = "ServerConfig.SendTextFile"
-	ServerConfig_Delta         = "ServerConfig.Delta"
+	Server_GetFileHashes = "Server.GetFileHashes"
+	Server_GetTextFile   = "Server.GetTextFile"
+	Server_SendTextFile  = "Server.SendTextFile"
+	Server_Delta         = "Server.Delta"
 )
 
 type ServerConfig struct {
@@ -56,6 +56,12 @@ func (c *ServerConfig) BuildCache() {
 	logFatalIfNotNil("walk", err)
 }
 
+func (c *ServerConfig) ReadCommands(conn io.ReadWriteCloser) {
+	c.server = rpc.NewServer()
+	c.server.RegisterName("Server", c)
+	c.server.ServeConn(conn)
+}
+
 func (c *ServerConfig) Delta(deltas TextFileDeltas, _ *int) error {
 	// make sure all diffs are valid before writing them to disk and cache
 	filesToWrite := make([]TextFile, len(deltas))
@@ -84,12 +90,6 @@ func (c *ServerConfig) Delta(deltas TextFileDeltas, _ *int) error {
 		c.fileCache[f.Path] = f.Content
 	}
 	return nil
-}
-
-func (c *ServerConfig) ReadCommands(conn io.ReadWriteCloser) {
-	c.server = rpc.NewServer()
-	c.server.Register(c)
-	c.server.ServeConn(conn)
 }
 
 func (c *ServerConfig) GetFileHashes(_ int, index *ChecksumIndex) error {

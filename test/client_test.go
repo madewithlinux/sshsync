@@ -1,16 +1,16 @@
 package test
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 	"github.com/stretchr/testify/assert"
 	"github.com/Joshua-Wright/sshsync"
+	"net/rpc"
+	"reflect"
 )
 
 func TestClientSendFileDiffs(t *testing.T) {
@@ -25,18 +25,20 @@ func TestClientSendFileDiffs(t *testing.T) {
 	clientFs := afero.NewBasePathFs(afero.NewOsFs(), testName)
 	err = afero.WriteFile(clientFs, "testfile1.txt", []byte("test 1"), 0644)
 	assert.NoError(t, err)
-
 	t.Log(clientPath)
+
+	clientConn, serverConn := sshsync.TwoWayPipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+	server := MockServer{}
+	go server.ReadCommands(serverConn)
 
 	c := &sshsync.ClientFolder{
 		BasePath:  clientPath,
 		ClientFs:  clientFs,
 		FileCache: make(map[string]string),
+		Client:    rpc.NewClient(clientConn),
 	}
-	serverStdin := &bytes.Buffer{}
-	serverStdout := &bytes.Buffer{}
-	c.ServerStdin = serverStdin
-	c.ServerStdout = serverStdout
 
 	err = c.BuildCache()
 	assert.NoError(t, err)
@@ -65,88 +67,16 @@ func TestClientSendFileDiffs(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	result := serverStdin.String()
-	expected2 := sshsync.Delta + "\n" +
-		"2\n" +
-		"newfile.txt\n" +
-		"+new%0A%09content%0A\n" +
-		"testfile1.txt\n" +
-		"=5\t-1\t+2%0A\n"
-	expected1 := sshsync.Delta + "\n" +
-		"2\n" +
-		"testfile1.txt\n" +
-		"=5\t-1\t+2%0A\n" +
-		"newfile.txt\n" +
-		"+new%0A%09content%0A\n"
-	if result != expected1 && result != expected2 {
-		t.Log("len(result):", len(result))
-		t.Log("len(expected):", len(expected1))
-		t.Fatalf("%s should have been %s", result, expected1)
+	result := server.CallsDelta[0]
+	expected2 := sshsync.TextFileDeltas{
+		{"newfile.txt", "+new%0A%09content%0A"},
+		{"testfile1.txt", "=5\t-1\t+2%0A"},
 	}
-}
-
-func TestClientWritesDiff(t *testing.T) {
-	testName := "TestClientWritesDiff"
-
-	err := os.Mkdir(testName, 0755)
-	assert.NoError(t, err)
-	defer os.RemoveAll(testName)
-	clientPath, err := filepath.Abs(testName)
-	assert.NoError(t, err)
-
-	clientFs := afero.NewBasePathFs(afero.NewOsFs(), testName)
-	err = afero.WriteFile(clientFs, "testfile1.txt", []byte("test 1"), 0644)
-	assert.NoError(t, err)
-
-	t.Log(clientPath)
-
-	c := &sshsync.ClientFolder{
-		IgnoreCfg: sshsync.DefaultIgnoreConfig,
-		BasePath:  clientPath,
-		ClientFs:  clientFs,
-		FileCache: make(map[string]string),
+	expected1 := sshsync.TextFileDeltas{
+		{"testfile1.txt", "=5\t-1\t+2%0A"},
+		{"newfile.txt", "+new%0A%09content%0A"},
 	}
-	serverStdin := &bytes.Buffer{}
-	serverStdout := &bytes.Buffer{}
-	c.ServerStdin = serverStdin
-	c.ServerStdout = serverStdout
-
-	c.BuildCache()
-	assert.NoError(t, err)
-	err = c.StartWatchFiles(false)
-	assert.NoError(t, err)
-
-	// sleep to let Client setup watches
-	time.Sleep(500 * time.Millisecond)
-
-	// update existing file
-	file, err := clientFs.OpenFile("testfile1.txt", os.O_RDWR, 0644)
-	assert.NoError(t, err)
-	_, err = fmt.Fprintln(file, "test 2")
-	assert.NoError(t, err)
-	err = file.Close()
-	assert.NoError(t, err)
-	// create new file
-	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
-	assert.NoError(t, err)
-
-	// sleep to let Client see progress
-	time.Sleep(500 * time.Millisecond)
-
-	result := serverStdin.String()
-	expected2 := sshsync.Delta + "\n" +
-		"2\n" +
-		"newfile.txt\n" +
-		"+new%0A%09content%0A\n" +
-		"testfile1.txt\n" +
-		"=5\t-1\t+2%0A\n"
-	expected1 := sshsync.Delta + "\n" +
-		"2\n" +
-		"testfile1.txt\n" +
-		"=5\t-1\t+2%0A\n" +
-		"newfile.txt\n" +
-		"+new%0A%09content%0A\n"
-	if result != expected1 && result != expected2 {
+	if !reflect.DeepEqual(result, expected1) && !reflect.DeepEqual(result, expected2) {
 		t.Log("len(result):", len(result))
 		t.Log("len(expected):", len(expected1))
 		t.Fatalf("%s should have been %s", result, expected1)
