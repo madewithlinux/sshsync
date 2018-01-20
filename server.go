@@ -79,7 +79,6 @@ func (c *ServerConfig) Delta(deltas TextFileDeltas, _ *int) error {
 		filesToWrite[i] = TextFile{
 			Path:    path,
 			Content: newText,
-			Crc64:   crc64checksum(newText),
 		}
 	}
 	for _, f := range filesToWrite {

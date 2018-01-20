@@ -235,9 +235,6 @@ func (c *ClientFolder) OpenLocalConnection(path string) error {
 		return err
 	}
 
-	c.ServerStdout = stdout
-	c.ServerStdin = stdin
-
 	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
 
 	return nil
@@ -316,16 +313,10 @@ func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) e
 	}
 	fmt.Println("stdin, stdout", stdin, stdout)
 
-	// TODO
-	//session.Setenv(EnvIgnoreCfg, c.IgnoreCfg.String())
-
 	err = session.Start(BinName + " -server")
 	if err != nil {
 		return err
 	}
-
-	c.ServerStdout = stdout
-	c.ServerStdin = stdin
 
 	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
 

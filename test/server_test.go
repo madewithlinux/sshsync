@@ -61,6 +61,7 @@ func TestServerGetHashes(t *testing.T) {
 }
 
 func TestServerSendTextFile(t *testing.T) {
+	var err error
 	// test just one file because ordering is difficult to compare
 	var serverFs = afero.NewMemMapFs()
 	// setup
@@ -86,9 +87,7 @@ func TestServerSendTextFile(t *testing.T) {
 	}
 
 	// make sure file has original content
-	b, err := afero.ReadFile(serverFs, overwriteFile.Path)
-	assert.NoError(t, err)
-	assert.Equal(t, string1, string(b))
+	AssertFileContent(t, serverFs, overwriteFile.Path, string1)
 
 	// send files
 	err = client.Call(sshsync.Server_SendTextFile, overwriteFile, nil)
@@ -97,13 +96,9 @@ func TestServerSendTextFile(t *testing.T) {
 	assert.NoError(t, err)
 
 	// make sure file is overwritten
-	b, err = afero.ReadFile(serverFs, overwriteFile.Path)
-	assert.NoError(t, err)
-	assert.Equal(t, overwriteFile.Content, string(b))
+	AssertFileContent(t, serverFs, overwriteFile.Path, overwriteFile.Content)
 	// new file is there too
-	b, err = afero.ReadFile(serverFs, newFile.Path)
-	assert.NoError(t, err)
-	assert.Equal(t, newFile.Content, string(b))
+	AssertFileContent(t, serverFs, newFile.Path, newFile.Content)
 
 	client.Close()
 	clientConn.Close()
@@ -138,9 +133,7 @@ func TestServerDelta(t *testing.T) {
 	assert.NoError(t, err)
 
 	// verify file now contains string2
-	fileBytes, err := afero.ReadFile(serverFs, "testFile.txt")
-	assert.NoError(t, err)
-	assert.Equal(t, string2, string(fileBytes))
+	AssertFileContent(t, serverFs, "testFile.txt", string2)
 
 	client.Close()
 	clientConn.Close()

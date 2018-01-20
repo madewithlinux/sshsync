@@ -170,7 +170,6 @@ func (s *ReadWriteCloseAdapter) Read(p []byte) (n int, err error)  { return s.Re
 type TextFile struct {
 	Path    string
 	Content string
-	Crc64   uint64
 }
 
 // map of Path to Crc64
