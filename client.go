@@ -200,8 +200,8 @@ func (c *ClientFolder) addWatches(watcher *fsnotify.Watcher) error {
 
 		// explicitly make sure to watch folders (to make sure that new files are watched)
 		if info.IsDir() || !c.IgnoreCfg.ShouldIgnore(c.ClientFs, path) {
-			log.Println("path", path)
-			log.Println("abs path", c.makePathAbsolute(path))
+			log.Println("Path", path)
+			log.Println("abs Path", c.makePathAbsolute(path))
 			err := watcher.Add(c.makePathAbsolute(path))
 			logFatalIfNotNil("add initial watch", err)
 		}
@@ -370,17 +370,17 @@ func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	//	if err != nil {
 	//		return nil, err
 	//	}
-	//	checksum, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
+	//	Crc64, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
 	//	if err != nil {
 	//		return nil, err
 	//	}
-	//	path, err := Reader.ReadString('\n')
+	//	Path, err := Reader.ReadString('\n')
 	//	if err != nil {
 	//		return nil, err
 	//	}
 	//	// remove newline
-	//	path = path[0: len(path)-1]
-	//	serverChecksums[path] = checksum
+	//	Path = Path[0: len(Path)-1]
+	//	serverChecksums[Path] = Crc64
 	//}
 	//return serverChecksums, nil
 }
@@ -472,10 +472,10 @@ func (c *ClientFolder) TryAutoResolveWithServerState() error {
 		}
 	}
 
-	// check for checksum mismatches, ignoring missing files
+	// check for Crc64 mismatches, ignoring missing files
 	for filePath, clientChecksum := range clientChecksums {
 		if serverChecksums[filePath] != clientChecksum && !ignoreChecksumCheck[filePath] {
-			fmt.Fprintln(errorText, "checksum mismatch:", filePath)
+			fmt.Fprintln(errorText, "Crc64 mismatch:", filePath)
 			isError = true
 		}
 	}
@@ -520,10 +520,10 @@ func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
 		}
 	}
 
-	// check for checksum mismatches, ignoring missing files
+	// check for Crc64 mismatches, ignoring missing files
 	for path, clientChecksum := range clientChecksums {
 		if serverChecksums[path] != clientChecksum && !ignoreChecksumCheck[path] {
-			fmt.Fprintln(errorText, "checksum mismatch:", path)
+			fmt.Fprintln(errorText, "Crc64 mismatch:", path)
 			isError = true
 		}
 	}
@@ -542,8 +542,8 @@ type argT struct {
 	ServerAddress  string `cli:"*addr" usage:"server address"`
 	ServerUsername string `cli:"user" usage:"server username" dft:"$USER"`
 	ServerPort     string `cli:"port" usage:"server port" dft:"22"`
-	ServerPath     string `cli:"*remote" usage:"server path"`
-	LocalPath      string `cli:"*local" usage:"local path"`
+	ServerPath     string `cli:"*remote" usage:"server Path"`
+	LocalPath      string `cli:"*local" usage:"local Path"`
 }
 
 func ClientMain() {

@@ -13,14 +13,14 @@ import (
 
 // protocol constants
 const (
-	// apply a delta to a file
+	// apply a Delta to a file
 	// format:
-	// delta
+	// Delta
 	// <number of files>
 	// <filename>
-	// <delta>
+	// <Delta>
 	// server sends no response
-	Delta = "delta"
+	Delta = "Delta"
 
 	// stop the server
 	Exit = "exit"
@@ -187,11 +187,16 @@ func (s *ReadWriteCloseAdapter) Close() error                      { return s.Wr
 func (s *ReadWriteCloseAdapter) Read(p []byte) (n int, err error)  { return s.Reader.Read(p) }
 
 type TextFile struct {
-	name     string
-	path     string
-	content  string
-	checksum uint64
+	Path    string
+	Content string
+	Crc64   uint64
 }
 
-// map of path to checksum
+// map of Path to Crc64
 type ChecksumIndex map[string]uint64
+
+type TextFileDelta struct {
+	Path  string
+	Delta string
+}
+type TextFileDeltas []TextFileDelta
