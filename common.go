@@ -200,3 +200,10 @@ type TextFileDelta struct {
 	Delta string
 }
 type TextFileDeltas []TextFileDelta
+
+func TwoWayPipe() (io.ReadWriteCloser, io.ReadWriteCloser) {
+	// server read, client write (and vice versa)
+	sr, cw := io.Pipe()
+	cr, sw := io.Pipe()
+	return &ReadWriteCloseAdapter{cr, cw}, &ReadWriteCloseAdapter{sr, sw}
+}

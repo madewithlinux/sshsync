@@ -86,10 +86,10 @@ func (c *ServerConfig) Delta(deltas TextFileDeltas, _ *int) error {
 	return nil
 }
 
-func (c *ServerConfig) readCommands(stdout io.WriteCloser, stdin io.Reader) {
+func (c *ServerConfig) readCommands(conn io.ReadWriteCloser) {
 	c.server = rpc.NewServer()
 	c.server.Register(c)
-	c.server.ServeConn(&ReadWriteCloseAdapter{stdin, stdout})
+	c.server.ServeConn(conn)
 }
 
 func (c *ServerConfig) GetFileHashes(_ int, index *ChecksumIndex) error {
@@ -134,5 +134,5 @@ func ServerMain() {
 	server.path = wd
 	server.buildCache()
 
-	server.readCommands(os.Stdout, os.Stdin)
+	server.readCommands(&ReadWriteCloseAdapter{os.Stdout, os.Stdin})
 }

@@ -351,38 +351,6 @@ func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	out := make(map[string]uint64)
 	err := c.client.Call(ServerConfig_GetFileHashes, 0, out)
 	return out, err
-	//fmt.Fprintln(c.serverStdin, GetFileHashes)
-	//Reader := bufio.NewReader(c.serverStdout)
-	//
-	//countStr, err := Reader.ReadString('\n')
-	//if err != nil {
-	//	return nil, err
-	//}
-	//count, err := strconv.Atoi(strings.TrimSpace(countStr))
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
-	//serverChecksums := make(map[string]uint64)
-	//
-	//for i := 0; i < count; i++ {
-	//	checksumStr, err := Reader.ReadString(' ')
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	Crc64, err := strconv.ParseUint(strings.TrimSpace(checksumStr), 16, 64)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	Path, err := Reader.ReadString('\n')
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	// remove newline
-	//	Path = Path[0: len(Path)-1]
-	//	serverChecksums[Path] = Crc64
-	//}
-	//return serverChecksums, nil
 }
 
 func (c *ClientFolder) TryAutoResolveWithServerState() error {

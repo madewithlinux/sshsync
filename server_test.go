@@ -5,7 +5,6 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 	"testing"
-	"io"
 	"net/rpc"
 )
 
@@ -17,16 +16,12 @@ func TestServerGetTextFile(t *testing.T) {
 	// write test data to file
 	afero.WriteFile(serverFs, "testFile.txt", []byte(string1), 0644)
 
-	// server read, client write (and vice versa)
-	sr, cw := io.Pipe()
-	cr, sw := io.Pipe()
-
 	// test
 	server := NewServerConfig(serverFs)
 	server.buildCache()
-	go server.readCommands(sw, sr)
-	conn := &ReadWriteCloseAdapter{cr, cw}
-	client := rpc.NewClient(conn)
+	clientConn, serverConn := TwoWayPipe()
+	go server.readCommands(serverConn)
+	client := rpc.NewClient(clientConn)
 
 	var out string
 	err := client.Call(ServerConfig_GetTextFile, "testFile.txt", &out)
@@ -34,8 +29,8 @@ func TestServerGetTextFile(t *testing.T) {
 		t.Fatalf("%s", err)
 	}
 	assert.Equal(t, out, string1)
-	sr.Close()
-	cr.Close()
+	clientConn.Close()
+	serverConn.Close()
 }
 
 func TestServerGetHashes(t *testing.T) {
@@ -46,16 +41,12 @@ func TestServerGetHashes(t *testing.T) {
 	// write test data to file
 	afero.WriteFile(serverFs, "testFile.txt", []byte(string1), 0644)
 
-	// server read, client write (and vice versa)
-	sr, cw := io.Pipe()
-	cr, sw := io.Pipe()
-
 	// test
 	server := NewServerConfig(serverFs)
 	server.buildCache()
-	go server.readCommands(sw, sr)
-	conn := &ReadWriteCloseAdapter{cr, cw}
-	client := rpc.NewClient(conn)
+	clientConn, serverConn := TwoWayPipe()
+	go server.readCommands(serverConn)
+	client := rpc.NewClient(clientConn)
 
 	var out ChecksumIndex
 	err := client.Call(ServerConfig_GetFileHashes, 0, &out)
@@ -64,8 +55,8 @@ func TestServerGetHashes(t *testing.T) {
 	assert.True(t, ok)
 
 	client.Close()
-	sr.Close()
-	cr.Close()
+	clientConn.Close()
+	serverConn.Close()
 }
 
 func TestServerSendTextFile(t *testing.T) {
@@ -76,16 +67,12 @@ func TestServerSendTextFile(t *testing.T) {
 	// write test data to file
 	afero.WriteFile(serverFs, "testFile.txt", []byte(string1), 0644)
 
-	// server read, client write (and vice versa)
-	sr, cw := io.Pipe()
-	cr, sw := io.Pipe()
-
 	// test
 	server := NewServerConfig(serverFs)
 	server.buildCache()
-	go server.readCommands(sw, sr)
-	conn := &ReadWriteCloseAdapter{cr, cw}
-	client := rpc.NewClient(conn)
+	clientConn, serverConn := TwoWayPipe()
+	go server.readCommands(serverConn)
+	client := rpc.NewClient(clientConn)
 
 	// this file should overwrite the existing file
 	overwriteFile := TextFile{
@@ -118,8 +105,8 @@ func TestServerSendTextFile(t *testing.T) {
 	assert.Equal(t, newFile.Content, string(b))
 
 	client.Close()
-	sr.Close()
-	cr.Close()
+	clientConn.Close()
+	serverConn.Close()
 }
 
 func TestServerDelta(t *testing.T) {
@@ -135,14 +122,13 @@ func TestServerDelta(t *testing.T) {
 	delta := dmp.DiffToDelta(diffs)
 
 	// create server
-	sr, cw := io.Pipe()
-	cr, sw := io.Pipe()
 	server := NewServerConfig(serverFs)
 	server.buildCache()
-	go server.readCommands(sw, sr)
+	clientConn, serverConn := TwoWayPipe()
+	go server.readCommands(serverConn)
 
 	// test call
-	client := rpc.NewClient(&ReadWriteCloseAdapter{cr, cw})
+	client := rpc.NewClient(clientConn)
 	err := client.Call(ServerConfig_Delta, TextFileDeltas{
 		{
 			Path:  "testFile.txt",
@@ -156,6 +142,6 @@ func TestServerDelta(t *testing.T) {
 	assert.Equal(t, string2, string(fileBytes))
 
 	client.Close()
-	sr.Close()
-	cr.Close()
+	clientConn.Close()
+	serverConn.Close()
 }

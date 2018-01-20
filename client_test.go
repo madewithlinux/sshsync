@@ -9,26 +9,21 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestClientSendFileDiffs(t *testing.T) {
 	testName := "TestClientSendFileDiffs"
 
 	err := os.Mkdir(testName, 0755)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	defer os.RemoveAll(testName)
 	clientPath, err := filepath.Abs(testName)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	clientFs := afero.NewBasePathFs(afero.NewOsFs(), testName)
 	err = afero.WriteFile(clientFs, "testfile1.txt", []byte("test 1"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	t.Log(clientPath)
 
@@ -43,47 +38,31 @@ func TestClientSendFileDiffs(t *testing.T) {
 	c.serverStdout = serverStdout
 
 	c.BuildCache()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	// add watches just to build the cache
 	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	defer watcher.Close()
 	err = c.addWatches(watcher)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	// update existing file
 	file, err := clientFs.OpenFile("testfile1.txt", os.O_RDWR, 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	_, err = fmt.Fprintln(file, "test 2")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	err = file.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	// create new file
 	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	err = c.sendFileDiffs(map[string]bool{
 		"testfile1.txt": true,
 		"newfile.txt":   true,
 	})
-	if err != nil {
-		t.Fatal("should not have failed", err)
-	}
+	assert.NoError(t, err)
 
 	result := serverStdin.String()
 	expected2 := Delta + "\n" +
@@ -109,20 +88,14 @@ func TestClientWritesDiff(t *testing.T) {
 	testName := "TestClientWritesDiff"
 
 	err := os.Mkdir(testName, 0755)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	defer os.RemoveAll(testName)
 	clientPath, err := filepath.Abs(testName)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	clientFs := afero.NewBasePathFs(afero.NewOsFs(), testName)
 	err = afero.WriteFile(clientFs, "testfile1.txt", []byte("test 1"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	t.Log(clientPath)
 
@@ -138,35 +111,23 @@ func TestClientWritesDiff(t *testing.T) {
 	c.serverStdout = serverStdout
 
 	c.BuildCache()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	err = c.StartWatchFiles(false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	// sleep to let client setup watches
 	time.Sleep(500 * time.Millisecond)
 
 	// update existing file
 	file, err := clientFs.OpenFile("testfile1.txt", os.O_RDWR, 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	_, err = fmt.Fprintln(file, "test 2")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	err = file.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	// create new file
 	err = afero.WriteFile(clientFs, "newfile.txt", []byte("new\n\tcontent\n"), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	// sleep to let client see progress
 	time.Sleep(500 * time.Millisecond)
