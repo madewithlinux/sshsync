@@ -51,6 +51,19 @@ func (c *ClientFolder) makePathRelative(absPath string) string {
 	return strings.TrimPrefix(absPath, basePath)
 }
 
+func (c *ClientFolder) SendCompleteTextFile(path string) error {
+	textFile := TextFile{
+		Path:    path,
+		Content: c.FileCache[path],
+	}
+	return c.Client.Call(Server_SendTextFile, textFile, nil)
+}
+func (c *ClientFolder) GetCompleteTextFile(path string) (string, error) {
+	content := ""
+	err := c.Client.Call(Server_GetTextFile, path, &content)
+	return content, err
+}
+
 func (c *ClientFolder) SendFileDiffs(files map[string]bool) error {
 	buf := TextFileDeltas{}
 
@@ -289,6 +302,33 @@ func (c *ClientFolder) AssertClientAndServerMatch() error {
 	}
 }
 
+func (c *ClientFolder) AutoResolveWithServer() error {
+	client, server, _, mismatch := c.CheckClientServerIndexes()
+	if len(mismatch) != 0 {
+		errorText := &bytes.Buffer{}
+		fmt.Fprintln(errorText, "Client-Server mismatch:")
+		for _, path := range mismatch {
+			fmt.Fprintln(errorText, "Crc64 mismatch:", path)
+		}
+		return errors.New((errorText.String()))
+	}
+	// FIXME: send multiple files at a time (like in an array)
+	for _, path := range client {
+		log.Println("sending", path, "to server")
+		c.SendCompleteTextFile(path)
+	}
+	for _, path := range server {
+		log.Println("downloading", path, "from server")
+		content, err := c.GetCompleteTextFile(path)
+		if err != nil {
+			return err
+		}
+		c.FileCache[path] = content
+		afero.WriteFile(c.ClientFs, path, []byte(content), 0644)
+	}
+	return nil
+}
+
 ////////////////////////////////////////////
 
 type argT struct {
@@ -326,9 +366,7 @@ func ClientMain() {
 		for path, _ := range c.FileCache {
 			log.Println("cache", path)
 		}
-		err = c.AssertClientAndServerMatch()
-		// TODO
-		//err = c.TryAutoResolveWithServerState()
+		err = c.AutoResolveWithServer()
 		die("check up to date", err)
 		c.StartWatchFiles(true)
 
