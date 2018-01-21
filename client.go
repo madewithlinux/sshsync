@@ -58,9 +58,24 @@ func (c *ClientFolder) SendCompleteTextFile(path string) error {
 	}
 	return c.Client.Call(Server_SendTextFile, textFile, nil)
 }
+func (c *ClientFolder) SendCompleteTextFiles(paths []string) error {
+	textFiles := make([]TextFile, len(paths))
+	for i, _ := range textFiles {
+		textFiles[i] = TextFile{
+			Path:    paths[i],
+			Content: c.FileCache[paths[i]],
+		}
+	}
+	return c.Client.Call(Server_SendTextFiles, textFiles, nil)
+}
 func (c *ClientFolder) GetCompleteTextFile(path string) (string, error) {
 	content := ""
 	err := c.Client.Call(Server_GetTextFile, path, &content)
+	return content, err
+}
+func (c *ClientFolder) GetCompleteTextFiles(paths []string) ([]TextFile, error) {
+	content := []TextFile{}
+	err := c.Client.Call(Server_GetTextFiles, paths, &content)
 	return content, err
 }
 
@@ -313,18 +328,14 @@ func (c *ClientFolder) AutoResolveWithServer() error {
 		return errors.New((errorText.String()))
 	}
 	// FIXME: send multiple files at a time (like in an array)
-	for _, path := range client {
-		log.Println("sending", path, "to server")
-		c.SendCompleteTextFile(path)
+	c.SendCompleteTextFiles(client)
+	textFiles, err := c.GetCompleteTextFiles(server)
+	if err != nil {
+		return err
 	}
-	for _, path := range server {
-		log.Println("downloading", path, "from server")
-		content, err := c.GetCompleteTextFile(path)
-		if err != nil {
-			return err
-		}
-		c.FileCache[path] = content
-		afero.WriteFile(c.ClientFs, path, []byte(content), 0644)
+	for _, file := range textFiles {
+		c.FileCache[file.Path] = file.Content
+		afero.WriteFile(c.ClientFs, file.Path, []byte(file.Content), 0644)
 	}
 	return nil
 }

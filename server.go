@@ -11,7 +11,9 @@ import (
 const (
 	Server_GetFileHashes = "Server.GetFileHashes"
 	Server_GetTextFile   = "Server.GetTextFile"
+	Server_GetTextFiles  = "Server.GetTextFiles"
 	Server_SendTextFile  = "Server.SendTextFile"
+	Server_SendTextFiles = "Server.SendTextFiles"
 	Server_Delta         = "Server.Delta"
 )
 
@@ -106,12 +108,33 @@ func (c *ServerConfig) GetTextFile(path string, content *string) error {
 	return nil
 }
 
+func (c *ServerConfig) GetTextFiles(paths []string, files *[]TextFile) error {
+	*files = make([]TextFile, len(paths))
+	for i, path := range paths {
+		(*files)[i].Path = path
+		(*files)[i].Content = c.fileCache[path]
+	}
+	return nil
+}
+
 // warning: blindly overwrites existing files
 func (c *ServerConfig) SendTextFile(file TextFile, _ *int) error {
 	//	TODO cache entire file, not just Content (because maybe additional metadata)
 	c.fileCache[file.Path] = file.Content
 	// TODO store file mode in TextFile struct
 	return afero.WriteFile(c.ServerFs, file.Path, []byte(file.Content), 0644)
+}
+
+// warning: blindly overwrites existing files
+func (c *ServerConfig) SendTextFiles(files []TextFile, _ *int) error {
+	var err error
+	for _, file := range files {
+		err = c.SendTextFile(file, nil)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ServerMain() {
