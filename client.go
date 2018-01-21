@@ -211,51 +211,81 @@ func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	return out, err
 }
 
-func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
-	errorText := &bytes.Buffer{}
-	fmt.Fprintln(errorText, "Client-Server mismatch:")
-	isError := false
-
-	clientChecksums := make(map[string]uint64)
-	for path, text := range c.FileCache {
-		clientChecksums[path] = crc64checksum(text)
+func (c *ClientFolder) CheckClientServerIndexes() (client, server, match, mismatch []string) {
+	if c.FileCache == nil {
+		c.BuildCache()
 	}
 
-	serverChecksums, err := c.getServerChecksums()
-	if err != nil {
-		return err
-	}
+	// categorize files by location by path
+	clientM := make(map[string]bool)
+	serverM := make(map[string]bool)
+	matchM := make(map[string]bool)
+	mismatchM := make(map[string]bool)
 
-	ignoreChecksumCheck := make(map[string]bool)
-	// check for files on Client not on server
-	for path, _ := range clientChecksums {
-		if _, ok := serverChecksums[path]; !ok {
-			fmt.Fprintln(errorText, "on Client, missing from server:", path)
-			ignoreChecksumCheck[path] = true
-			isError = true
+	serverIndex, err := c.getServerChecksums()
+	die("", err)
+	for path, serverCheck := range serverIndex {
+		if clientContent, ok := c.FileCache[path]; ok {
+			clientCheck := crc64checksum(clientContent)
+			if serverCheck == clientCheck {
+				matchM[path] = true
+			} else {
+				mismatchM[path] = true
+			}
+		} else {
+			serverM[path] = true
 		}
 	}
-	// check for files on server not on Client
-	for path, _ := range serverChecksums {
-		if _, ok := clientChecksums[path]; !ok {
-			fmt.Fprintln(errorText, "on server, missing from Client:", path)
-			ignoreChecksumCheck[path] = true
-			isError = true
-		}
-	}
-
-	// check for Crc64 mismatches, ignoring missing files
-	for path, clientChecksum := range clientChecksums {
-		if serverChecksums[path] != clientChecksum && !ignoreChecksumCheck[path] {
-			fmt.Fprintln(errorText, "Crc64 mismatch:", path)
-			isError = true
+	for path, clientContent := range c.FileCache {
+		clientCheck := crc64checksum(clientContent)
+		if serverCheck, ok := serverIndex[path]; ok {
+			if serverCheck == clientCheck {
+				matchM[path] = true
+			} else {
+				mismatchM[path] = true
+			}
+		} else {
+			clientM[path] = true
 		}
 	}
 
-	if isError {
-		return errors.New(errorText.String())
-	} else {
+	// copy into output arrays
+	client = make([]string, 0, len(clientM))
+	for path, _ := range clientM {
+		client = append(client, path)
+	}
+	server = make([]string, 0, len(serverM))
+	for path, _ := range serverM {
+		server = append(server, path)
+	}
+	match = make([]string, 0, len(matchM))
+	for path, _ := range matchM {
+		match = append(match, path)
+	}
+	mismatch = make([]string, 0, len(mismatchM))
+	for path, _ := range mismatchM {
+		mismatch = append(mismatch, path)
+	}
+	return
+}
+
+func (c *ClientFolder) AssertClientAndServerMatch() error {
+	client, server, _, mismatch := c.CheckClientServerIndexes()
+	if len(client) == 0 && len(server) == 0 && len(mismatch) == 0 {
 		return nil
+	} else {
+		errorText := &bytes.Buffer{}
+		fmt.Fprintln(errorText, "Client-Server mismatch:")
+		for _, path := range client {
+			fmt.Fprintln(errorText, "on Client, missing from server:", path)
+		}
+		for _, path := range server {
+			fmt.Fprintln(errorText, "on server, missing from Client:", path)
+		}
+		for _, path := range mismatch {
+			fmt.Fprintln(errorText, "Crc64 mismatch:", path)
+		}
+		return errors.New(errorText.String())
 	}
 }
 
@@ -296,7 +326,7 @@ func ClientMain() {
 		for path, _ := range c.FileCache {
 			log.Println("cache", path)
 		}
-		err = c.AssertClientAndServerHashesMatch()
+		err = c.AssertClientAndServerMatch()
 		// TODO
 		//err = c.TryAutoResolveWithServerState()
 		die("check up to date", err)

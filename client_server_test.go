@@ -40,7 +40,7 @@ func TestClientAssertMatchServer(t *testing.T) {
 			Client:    rpc.NewClient(clientConn),
 		}
 		c.BuildCache()
-		err = c.AssertClientAndServerHashesMatch()
+		err = c.AssertClientAndServerMatch()
 		assert.NoError(t, err)
 	})
 
@@ -60,7 +60,7 @@ func TestClientAssertMatchServer(t *testing.T) {
 			Client:    rpc.NewClient(clientConn),
 		}
 		c.BuildCache()
-		err = c.AssertClientAndServerHashesMatch()
+		err = c.AssertClientAndServerMatch()
 		assert.Error(t, err)
 	})
 
@@ -80,7 +80,7 @@ func TestClientAssertMatchServer(t *testing.T) {
 			Client:    rpc.NewClient(clientConn),
 		}
 		c.BuildCache()
-		err = c.AssertClientAndServerHashesMatch()
+		err = c.AssertClientAndServerMatch()
 		assert.Error(t, err)
 	})
 }
