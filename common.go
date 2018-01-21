@@ -9,6 +9,10 @@ import (
 	"hash/crc64"
 	"fmt"
 	"io"
+	"os"
+	"golang.org/x/crypto/ssh"
+	"os/exec"
+	"io/ioutil"
 )
 
 // protocol constants
@@ -137,7 +141,7 @@ func (cfg *IgnoreConfig) ShouldIgnore(fs afero.Fs, path string) bool {
 	return true
 }
 
-func logFatalIfNotNil(label string, err error) {
+func die(label string, err error) {
 	if err != nil {
 		log.Fatal(label, " error: ", err)
 	}
@@ -156,6 +160,106 @@ func crc64checksum(content string) uint64 {
 
 func crc64string(content string) string {
 	return fmt.Sprintf("%0X", crc64checksum(content))
+}
+
+/////////////////////////////////////////////////////////
+
+func makeSigner(keyname string) (signer ssh.Signer, err error) {
+	fp, err := os.Open(keyname)
+	if err != nil {
+		return
+	}
+	defer fp.Close()
+
+	buf, err := ioutil.ReadAll(fp)
+	if err != nil {
+		return nil, err
+	}
+	signer, err = ssh.ParsePrivateKey(buf)
+	if err != nil {
+		return nil, err
+	}
+	return
+}
+func makeKeyring() []ssh.AuthMethod {
+	signers := []ssh.Signer{}
+	keys := []string{
+		os.Getenv("HOME") + "/.ssh/id_rsa",
+		os.Getenv("HOME") + "/.ssh/id_dsa",
+		os.Getenv("HOME") + "/.ssh/id_ecdsa",
+		os.Getenv("HOME") + "/.ssh/id_ed25519",
+	}
+
+	for _, keyname := range keys {
+		signer, err := makeSigner(keyname)
+		if err == nil {
+			signers = append(signers, signer)
+		}
+	}
+
+	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}
+}
+func OpenSshConnection(serverSidePath, user, address string) (io.ReadWriteCloser, error) {
+	config := &ssh.ClientConfig{
+		User:            user,
+		Auth:            makeKeyring(),
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	// FIXME: conn and session are leaked
+	// probably not a problem in this use-case because we would close these connections right before exiting
+	// the program anyway
+
+	conn, err := ssh.Dial("tcp", address, config)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := conn.NewSession()
+	if err != nil {
+		return nil, err
+	}
+
+	err = session.Setenv(EnvSourceDir, serverSidePath)
+	if err != nil {
+		return nil, err
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("stdin, stdout", stdin, stdout)
+
+	err = session.Start(BinName + " -server")
+	if err != nil {
+		return nil, err
+	}
+
+	return &ReadWriteCloseAdapter{stdout, stdin}, nil
+}
+
+func OpenLocalConnection(path string) (io.ReadWriteCloser, error) {
+	serverCmd := exec.Command(BinName)
+	serverCmd.Dir = path
+
+	stdin, err := serverCmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := serverCmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	err = serverCmd.Start()
+	if err != nil {
+		return nil, err
+	}
+	return &ReadWriteCloseAdapter{stdout, stdin}, nil
 }
 
 type ReadWriteCloseAdapter struct {

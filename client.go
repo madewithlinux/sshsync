@@ -3,21 +3,14 @@ package sshsync
 import (
 	"bytes"
 	"fmt"
-	"bufio"
 	"github.com/fsnotify/fsnotify"
 	"github.com/mkideal/cli"
 	"github.com/pkg/errors"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
-	"io"
-	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 	"net/rpc"
@@ -25,15 +18,16 @@ import (
 
 const commitTimeout = 200 * time.Millisecond
 
+// FIXME figure out why this package needs to carry around this object
+var dmp = diffmatchpatch.New()
+
 type ClientFolder struct {
-	BasePath     string
-	ClientFs     afero.Fs
-	IgnoreCfg    IgnoreConfig
-	FileCache    map[string]string
-	ServerStdout io.Reader
-	ServerStdin  io.Writer
-	ExitChannel  chan bool
-	Client       *rpc.Client
+	BasePath    string
+	ClientFs    afero.Fs
+	IgnoreCfg   IgnoreConfig
+	FileCache   map[string]string
+	ExitChannel chan bool
+	Client      *rpc.Client
 }
 
 func (c *ClientFolder) Close() {
@@ -56,9 +50,6 @@ func (c *ClientFolder) makePathRelative(absPath string) string {
 	// so that we can just trim prefix
 	return strings.TrimPrefix(absPath, basePath)
 }
-
-// FIXME figure out why this package needs to carry around this object
-var dmp = diffmatchpatch.New()
 
 func (c *ClientFolder) SendFileDiffs(files map[string]bool) error {
 	buf := TextFileDeltas{}
@@ -137,7 +128,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 				}
 
 				err = watcher.Add(absPath)
-				logFatalIfNotNil("add new watch", err)
+				die("add new watch", err)
 				info, err2 := c.ClientFs.Stat(path)
 
 				// do not diff folders
@@ -154,7 +145,7 @@ func (c *ClientFolder) StartWatchFiles(foreground bool) error {
 				}
 
 			case err := <-watcher.Errors:
-				logFatalIfNotNil("watcher error", err)
+				die("watcher error", err)
 
 			case _ = <-c.ExitChannel:
 				log.Println("quitting watch thread")
@@ -190,13 +181,11 @@ func (c *ClientFolder) AddWatches(watcher *fsnotify.Watcher) error {
 			log.Println("Path", path)
 			log.Println("abs Path", c.makePathAbsolute(path))
 			err := watcher.Add(c.makePathAbsolute(path))
-			logFatalIfNotNil("add initial watch", err)
+			die("add initial watch", err)
 		}
 		return nil
 	})
 }
-
-////////////////////////////////////////////
 
 func (c *ClientFolder) BuildCache() error {
 
@@ -209,228 +198,17 @@ func (c *ClientFolder) BuildCache() error {
 			// add only files to cache
 			buf, err := afero.ReadFile(c.ClientFs, path)
 			// TODO do not fail hard
-			logFatalIfNotNil("read file", err)
+			die("read file", err)
 			c.FileCache[path] = string(buf)
 		}
 		return nil
 	})
 }
 
-////////////////////////////////////////////
-
-func (c *ClientFolder) OpenLocalConnection(path string) error {
-	serverCmd := exec.Command(BinName)
-	serverCmd.Dir = path
-
-	stdin, err := serverCmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := serverCmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	err = serverCmd.Start()
-	if err != nil {
-		return err
-	}
-
-	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
-
-	return nil
-}
-
-func makeSigner(keyname string) (signer ssh.Signer, err error) {
-	fp, err := os.Open(keyname)
-	if err != nil {
-		return
-	}
-	defer fp.Close()
-
-	buf, err := ioutil.ReadAll(fp)
-	if err != nil {
-		return nil, err
-	}
-	signer, err = ssh.ParsePrivateKey(buf)
-	if err != nil {
-		return nil, err
-	}
-	return
-}
-
-func makeKeyring() []ssh.AuthMethod {
-	signers := []ssh.Signer{}
-	keys := []string{
-		os.Getenv("HOME") + "/.ssh/id_rsa",
-		os.Getenv("HOME") + "/.ssh/id_dsa",
-		os.Getenv("HOME") + "/.ssh/id_ecdsa",
-		os.Getenv("HOME") + "/.ssh/id_ed25519",
-	}
-
-	for _, keyname := range keys {
-		signer, err := makeSigner(keyname)
-		if err == nil {
-			signers = append(signers, signer)
-		}
-	}
-
-	return []ssh.AuthMethod{ssh.PublicKeys(signers...)}
-}
-
-func (c *ClientFolder) OpenSshConnection(serverSidePath, user, address string) error {
-	config := &ssh.ClientConfig{
-		User:            user,
-		Auth:            makeKeyring(),
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	// FIXME: conn and session are leaked
-	// probably not a problem in this use-case because we would close these connections right before exiting
-	// the program anyway
-
-	conn, err := ssh.Dial("tcp", address, config)
-	if err != nil {
-		return err
-	}
-
-	session, err := conn.NewSession()
-	if err != nil {
-		return err
-	}
-
-	err = session.Setenv(EnvSourceDir, serverSidePath)
-	if err != nil {
-		return err
-	}
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	fmt.Println("stdin, stdout", stdin, stdout)
-
-	err = session.Start(BinName + " -server")
-	if err != nil {
-		return err
-	}
-
-	c.Client = rpc.NewClient(&ReadWriteCloseAdapter{stdout, stdin})
-
-	return nil
-}
-
-////////////////////////////////////////////
-
 func (c *ClientFolder) getServerChecksums() (map[string]uint64, error) {
 	out := make(map[string]uint64)
 	err := c.Client.Call(Server_GetFileHashes, 0, &out)
 	return out, err
-}
-
-func (c *ClientFolder) TryAutoResolveWithServerState() error {
-	errorText := &bytes.Buffer{}
-	fmt.Fprintln(errorText, "Client-Server mismatch:")
-	isError := false
-
-	clientChecksums := make(map[string]uint64)
-	for filePath, text := range c.FileCache {
-		clientChecksums[filePath] = crc64checksum(text)
-	}
-
-	serverChecksums, err := c.getServerChecksums()
-	if err != nil {
-		return err
-	}
-
-	ignoreChecksumCheck := make(map[string]bool)
-
-	// check for files on Client not on server
-	for filePath := range clientChecksums {
-		if _, ok := serverChecksums[filePath]; !ok {
-			log.Println("pushing", filePath)
-			ignoreChecksumCheck[filePath] = true
-			// send file to server
-			_, err = fmt.Fprintln(c.ServerStdin, SendTextFile)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(c.ServerStdin, filePath)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(c.ServerStdin, len([]byte(c.FileCache[filePath])))
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(c.ServerStdin, c.FileCache[filePath])
-			if err != nil {
-				return err
-			}
-			log.Println("pushed", filePath)
-		}
-	}
-	// check for files on server not on Client
-	for filePath := range serverChecksums {
-		if _, ok := clientChecksums[filePath]; !ok {
-			log.Println("downloading", filePath)
-			ignoreChecksumCheck[filePath] = true
-			// get file from server
-			fmt.Fprintln(c.ServerStdin, GetTextFile)
-			fmt.Fprintln(c.ServerStdin, filePath)
-
-			// read response
-			reader := bufio.NewReader(c.ServerStdout)
-			countStr, err := reader.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			byteCount, err := strconv.Atoi(strings.TrimSpace(countStr))
-			if err != nil {
-				return err
-			}
-
-			fileBytes := make([]byte, byteCount)
-			_, err = io.ReadFull(reader, fileBytes)
-			if err != nil {
-				return err
-			}
-			// read trailing newline
-			reader.ReadByte()
-			fileText := string(fileBytes)
-
-			// write file to cache
-			c.FileCache[filePath] = fileText
-			// make sure directory exists before writing file
-			dirname := path.Dir(filePath)
-			if dirname != "." {
-				// TODO mode
-				c.ClientFs.MkdirAll(dirname, 0755)
-			}
-			// TODO file mode?
-			err = afero.WriteFile(c.ClientFs, filePath, fileBytes, 0644)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	// check for Crc64 mismatches, ignoring missing files
-	for filePath, clientChecksum := range clientChecksums {
-		if serverChecksums[filePath] != clientChecksum && !ignoreChecksumCheck[filePath] {
-			fmt.Fprintln(errorText, "Crc64 mismatch:", filePath)
-			isError = true
-		}
-	}
-
-	if isError {
-		return errors.New(errorText.String())
-	} else {
-		return nil
-	}
 }
 
 func (c *ClientFolder) AssertClientAndServerHashesMatch() error {
@@ -499,7 +277,7 @@ func ClientMain() {
 
 		var dir = argv.LocalPath
 		err := os.Chdir(dir)
-		logFatalIfNotNil("chdir", err)
+		die("chdir", err)
 
 		c := &ClientFolder{
 			ClientFs: afero.NewBasePathFs(afero.NewOsFs(), dir),
@@ -510,14 +288,18 @@ func ClientMain() {
 		}
 		defer c.Close()
 
-		err = c.OpenSshConnection(argv.ServerPath, argv.ServerUsername, argv.ServerAddress+":"+argv.ServerPort)
-		logFatalIfNotNil("open ssh connection", err)
-		c.BuildCache()
+		conn, err := OpenSshConnection(argv.ServerPath, argv.ServerUsername, argv.ServerAddress+":"+argv.ServerPort)
+		die("open ssh connection", err)
+		c.Client = rpc.NewClient(conn)
+		err = c.BuildCache()
+		die("build cache", err)
 		for path, _ := range c.FileCache {
 			log.Println("cache", path)
 		}
-		err = c.TryAutoResolveWithServerState()
-		logFatalIfNotNil("check up to date", err)
+		err = c.AssertClientAndServerHashesMatch()
+		// TODO
+		//err = c.TryAutoResolveWithServerState()
+		die("check up to date", err)
 		c.StartWatchFiles(true)
 
 		return nil

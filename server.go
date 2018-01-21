@@ -45,7 +45,7 @@ func (c *ServerConfig) BuildCache() {
 			if !info.IsDir() {
 				// add only files to cache
 				buf, err := afero.ReadFile(c.ServerFs, path)
-				logFatalIfNotNil("read file", err)
+				die("read file", err)
 				c.fileCache[path] = string(buf)
 			}
 		} else {
@@ -53,7 +53,7 @@ func (c *ServerConfig) BuildCache() {
 		}
 		return nil
 	})
-	logFatalIfNotNil("walk", err)
+	die("walk", err)
 }
 
 func (c *ServerConfig) ReadCommands(conn io.ReadWriteCloser) {
@@ -117,17 +117,17 @@ func (c *ServerConfig) SendTextFile(file TextFile, _ *int) error {
 func ServerMain() {
 	sourceDir := os.Getenv(EnvSourceDir)
 	err := os.Chdir(sourceDir)
-	logFatalIfNotNil("could not find server source dir", err)
+	die("could not find server source dir", err)
 
 	// log in server-side sources for convenience
 	file, err := os.OpenFile("server.log", os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0644)
-	logFatalIfNotNil("server side open", err)
+	die("server side open", err)
 	defer file.Close()
 	log.SetOutput(file)
 
 	server := NewServerConfig(afero.NewOsFs())
 	wd, err := os.Getwd()
-	logFatalIfNotNil("get cwd", err)
+	die("get cwd", err)
 
 	server.IgnoreCfg = DefaultIgnoreConfig
 	server.path = wd
