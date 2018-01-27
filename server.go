@@ -7,6 +7,7 @@ import (
 	"os"
 	"net/rpc"
 	"bufio"
+	"strings"
 )
 
 const (
@@ -142,6 +143,7 @@ func ServerMain() {
 	//sourceDir := os.Getenv(EnvSourceDir)
 	reader := bufio.NewReader(os.Stdin)
 	sourceDir, _ := reader.ReadString('\n')
+	sourceDir = strings.Trim(sourceDir, "\n")
 	err := os.Chdir(sourceDir)
 	die("could not find server source dir", err)
 
