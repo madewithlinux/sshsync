@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"net/rpc"
+	"bufio"
 )
 
 const (
@@ -138,7 +139,9 @@ func (c *ServerConfig) SendTextFiles(files []TextFile, _ *int) error {
 }
 
 func ServerMain() {
-	sourceDir := os.Getenv(EnvSourceDir)
+	//sourceDir := os.Getenv(EnvSourceDir)
+	reader := bufio.NewReader(os.Stdin)
+	sourceDir, _ := reader.ReadString('\n')
 	err := os.Chdir(sourceDir)
 	die("could not find server source dir", err)
 

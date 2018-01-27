@@ -220,10 +220,10 @@ func OpenSshConnection(serverSidePath, user, address string) (io.ReadWriteCloser
 		return nil, err
 	}
 
-	err = session.Setenv(EnvSourceDir, serverSidePath)
-	if err != nil {
-		return nil, err
-	}
+	//err = session.Setenv(EnvSourceDir, serverSidePath)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
@@ -236,6 +236,11 @@ func OpenSshConnection(serverSidePath, user, address string) (io.ReadWriteCloser
 	fmt.Println("stdin, stdout", stdin, stdout)
 
 	err = session.Start(BinName + " -server")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = fmt.Fprintln(stdin, serverSidePath)
 	if err != nil {
 		return nil, err
 	}
