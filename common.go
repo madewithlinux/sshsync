@@ -212,11 +212,13 @@ func OpenSshConnection(serverSidePath, user, address string) (io.ReadWriteCloser
 
 	conn, err := ssh.Dial("tcp", address, config)
 	if err != nil {
+		log.Println("dial", err)
 		return nil, err
 	}
 
 	session, err := conn.NewSession()
 	if err != nil {
+		log.Println("create session", err)
 		return nil, err
 	}
 
@@ -227,16 +229,19 @@ func OpenSshConnection(serverSidePath, user, address string) (io.ReadWriteCloser
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
+		log.Println("stdin pipe", err)
 		return nil, err
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
+		log.Println("stdout pipe", err)
 		return nil, err
 	}
 	fmt.Println("stdin, stdout", stdin, stdout)
 
 	err = session.Start(BinName + " -server")
 	if err != nil {
+		log.Println("start cmd", err)
 		return nil, err
 	}
 
